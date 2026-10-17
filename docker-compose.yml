@@ -77,7 +77,7 @@ services:
     command:
       - sh
       - -c
-      - ecommerce import-products /data/products-sample.csv && ecommerce import-images /data/images
+      - ecommerce import-products /data/products-sample.csv && ecommerce import-images /data/product-images.csv
     environment: *api-environment
     volumes:
       - ./data:/data:ro
