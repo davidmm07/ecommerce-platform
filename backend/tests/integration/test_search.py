@@ -28,7 +28,7 @@ async def skus(container: Container, **criteria: object) -> list[str]:
         ("phone", {"PC-001", "PST-017"}),
         ("rs-0", {"RS-001", "RS-050"}),
         ("RS-001", {"RS-001"}),
-        ("drop table", {"SQL-001"}),
+        ("'; drop table products; --", set()),
     ],
 )
 async def test_full_text_fuzzy_and_sku_matching(
@@ -58,7 +58,7 @@ async def test_filters_and_sorting(catalog: Container) -> None:
     assert results == ["WE-023", "FT-013", "BM-006", "BS-021"]
     assert await skus(catalog, in_stock=False) == ["VC-001"]
     newest = await catalog.search_products.execute(ProductSearchCriteria(sort=ProductSort.NEWEST))
-    assert newest.total == 84
+    assert newest.total == 83
 
 
 async def test_pagination_reports_totals(catalog: Container) -> None:
@@ -68,7 +68,7 @@ async def test_pagination_reports_totals(catalog: Container) -> None:
     last = await catalog.search_products.execute(
         ProductSearchCriteria(sort=ProductSort.NAME, page=PageRequest(9, 10))
     )
-    assert (first.total, first.total_pages, len(first.items), len(last.items)) == (84, 9, 10, 4)
+    assert (first.total, first.total_pages, len(first.items), len(last.items)) == (83, 9, 10, 3)
     assert first.items[0].name <= first.items[-1].name
 
 

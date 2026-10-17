@@ -11,7 +11,7 @@ from ecommerce.domain.catalog.image import ProductImage
 from ecommerce.domain.catalog.sku import Sku
 from ecommerce.domain.errors import FieldErrors, InvalidValue
 from ecommerce.domain.money import DEFAULT_CURRENCY, Money
-from ecommerce.domain.text import multi_line, single_line
+from ecommerce.domain.text import multi_line, reject_sql_payload, single_line
 
 NAME_MAX_LENGTH = 200
 DESCRIPTION_MAX_LENGTH = 2000
@@ -22,11 +22,11 @@ WEIGHT_STEP = Decimal("0.001")
 
 
 def clean_name(value: str) -> str:
-    return single_line(value, max_length=NAME_MAX_LENGTH)
+    return reject_sql_payload(single_line(value, max_length=NAME_MAX_LENGTH))
 
 
 def clean_description(value: str) -> str:
-    return multi_line(value, max_length=DESCRIPTION_MAX_LENGTH)
+    return reject_sql_payload(multi_line(value, max_length=DESCRIPTION_MAX_LENGTH))
 
 
 def check_price(value: Decimal, currency: str = DEFAULT_CURRENCY) -> Money:

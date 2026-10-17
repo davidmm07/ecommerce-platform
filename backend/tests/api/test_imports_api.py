@@ -14,15 +14,15 @@ async def test_imports_the_sample_file(client: AsyncClient) -> None:
     assert report["dry_run"] is False
     assert report["summary"] == {
         "total_rows": 97,
-        "created": 84,
+        "created": 83,
         "updated": 0,
         "unchanged": 0,
         "skipped": 5,
-        "failed": 8,
+        "failed": 9,
     }
     failed = {row["sku"]: row["messages"] for row in report["rows"] if row["outcome"] == "failed"}
     assert failed["YM-015"] == ["price: 'free' is not a valid decimal number"]
-    assert (await client.get("/api/v1/products", params={"page_size": 1})).json()["total"] == 84
+    assert (await client.get("/api/v1/products", params={"page_size": 1})).json()["total"] == 83
 
 
 async def test_dry_run_does_not_persist(client: AsyncClient) -> None:

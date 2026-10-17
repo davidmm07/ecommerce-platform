@@ -103,9 +103,39 @@ class TestProductDetails:
             self.build(**overrides)
         assert [error.field for error in caught.value.errors] == [field]
 
-    def test_keeps_plain_text_that_only_looks_suspicious(self) -> None:
-        details = self.build(name="Robert'); DROP TABLE products;--", description="Size < 5 > 3")
-        assert details.name == "Robert'); DROP TABLE products;--"
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            "Robert'); DROP TABLE products;--",
+            "x' OR '1'='1",
+            "Shoes' --",
+            "1 UNION SELECT password FROM users",
+            "Mug; DELETE FROM orders",
+            "Lamp /* hidden */",
+            "x'; WAITFOR DELAY '0:0:5'",
+        ],
+    )
+    def test_rejects_sql_injection_payloads(self, payload: str) -> None:
+        with pytest.raises(DomainValidationError) as caught:
+            self.build(name=payload)
+        assert caught.value.errors[0].message.startswith("looks like an SQL injection payload")
+        with pytest.raises(DomainValidationError):
+            self.build(description=f"Great product. {payload}")
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Robert's Running Shoes",
+            "Rock & Roll; Vol. 2",
+            "Drop Earrings",
+            "Select from 6 colors",
+            "Update your set of tools",
+            "Size < 5 > 3",
+            'Quote "Inside" Name',
+        ],
+    )
+    def test_keeps_plain_text_that_only_looks_suspicious(self, text: str) -> None:
+        assert self.build(name=text, description=text).name == text
 
 
 class TestProduct:

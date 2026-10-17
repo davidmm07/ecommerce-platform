@@ -19,7 +19,7 @@ def cli_env(clean_database: Container, monkeypatch: pytest.MonkeyPatch) -> None:
 def test_dry_run_import_prints_a_summary(cli_env: None, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["import-products", str(SAMPLE_CSV), "--dry-run"]) == 0
     summary = json.loads(capsys.readouterr().out)
-    assert (summary["dry_run"], summary["created"], summary["failed"]) == (True, 84, 8)
+    assert (summary["dry_run"], summary["created"], summary["failed"]) == (True, 83, 9)
     assert {issue["line"] for issue in summary["issues"]} >= {7, 16, 20, 62}
 
 

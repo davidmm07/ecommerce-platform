@@ -40,17 +40,21 @@ async def test_imports_the_provided_sample_file() -> None:
 
     assert report.total_rows == 97
     assert report.summary == {
-        RowOutcome.CREATED: 84,
+        RowOutcome.CREATED: 83,
         RowOutcome.UPDATED: 0,
         RowOutcome.UNCHANGED: 0,
         RowOutcome.SKIPPED: 5,
-        RowOutcome.FAILED: 8,
+        RowOutcome.FAILED: 9,
     }
-    assert len(database.products) == 84
+    assert len(database.products) == 83
     assert rows[7] == (RowOutcome.FAILED, ("price: 'free' is not a valid decimal number",))
     assert rows[16] == (RowOutcome.FAILED, ("stock: must not be negative",))
     assert rows[20] == (RowOutcome.FAILED, ("name: must be plain text without HTML markup",))
     assert rows[25] == (RowOutcome.FAILED, ("name: is required",))
+    assert rows[29] == (
+        RowOutcome.FAILED,
+        ("name: looks like an SQL injection payload, use plain product text",),
+    )
     assert rows[41] == (RowOutcome.FAILED, ("name: is required",))
     assert rows[47] == (RowOutcome.FAILED, ("price: must be greater than 0",))
     assert rows[50] == (RowOutcome.FAILED, ("weight_kg: is required",))
@@ -63,7 +67,7 @@ async def test_imports_the_provided_sample_file() -> None:
     by_sku = {product.sku.value: product for product in database.products.values()}
     assert by_sku["RS-001"].description.startswith("Updated lightweight shoes")
     assert str(by_sku["BS-021"].price.amount) == "59.99"
-    assert by_sku["SQL-001"].name == "Robert'); DROP TABLE products;--"
+    assert "SQL-001" not in by_sku
     assert by_sku["CI-001"].name == "Comma, In Product Name"
     assert by_sku["QI-001"].name == 'Quote "Inside" Name'
     assert by_sku["WB-033"].description.endswith("24hrs" + chr(0x2122))
