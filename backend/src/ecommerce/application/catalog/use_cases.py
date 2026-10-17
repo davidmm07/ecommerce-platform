@@ -80,7 +80,7 @@ class UpdateProduct:
 
     async def execute(self, command: UpdateProductCommand) -> Product:
         async with self._uow_factory() as uow:
-            product = await _load_for_change(uow, command.product_id, command.expected_version)
+            product = await load_for_change(uow, command.product_id, command.expected_version)
             current = product.details
             details = ProductDetails.build(
                 name=_pick(command.name, current.name),
@@ -104,7 +104,7 @@ class ArchiveProduct:
 
     async def execute(self, command: ArchiveProductCommand) -> None:
         async with self._uow_factory() as uow:
-            product = await _load_for_change(uow, command.product_id, command.expected_version)
+            product = await load_for_change(uow, command.product_id, command.expected_version)
             product.archive(self._clock.now())
             await uow.products.update(product)
             await uow.commit()
@@ -130,7 +130,7 @@ class SearchProducts:
         return await self._catalog.search(criteria)
 
 
-async def _load_for_change(
+async def load_for_change(
     uow: UnitOfWork, product_id: UUID, expected_version: int | None
 ) -> Product:
     product = await uow.products.get(product_id, lock=True)

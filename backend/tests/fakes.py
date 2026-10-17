@@ -9,6 +9,7 @@ from ecommerce.application.errors import (
     NotFoundError,
     RequestInProgress,
 )
+from ecommerce.application.ports.media import ImageVariant, ProcessedImage
 from ecommerce.application.ports.payments import ChargeRequest, ChargeResult, PaymentGatewayError
 from ecommerce.application.ports.unit_of_work import UnitOfWork
 from ecommerce.domain.catalog.product import Product
@@ -137,4 +138,40 @@ class FakePaymentGateway:
             card_last4=request.card.last4,
             reference=f"fake_{len(self.requests)}",
             decline_code=self.decline_code,
+        )
+
+
+class InMemoryObjectStorage:
+    def __init__(self, *, fail_deletes: bool = False) -> None:
+        self.objects: dict[str, tuple[bytes, str]] = {}
+        self.fail_deletes = fail_deletes
+
+    async def put(self, key: str, data: bytes, *, content_type: str) -> None:
+        self.objects[key] = (data, content_type)
+
+    async def delete(self, keys: Collection[str]) -> None:
+        if self.fail_deletes:
+            raise OSError("storage unavailable")
+        for key in keys:
+            self.objects.pop(key, None)
+
+
+class FakeImageProcessor:
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls = 0
+
+    async def process(self, data: bytes) -> ProcessedImage:
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return ProcessedImage(
+            width=640,
+            height=480,
+            placeholder="data:image/webp;base64,AAAA",
+            variants=tuple(
+                ImageVariant(width, fmt, f"image/{fmt}", data[:8] + fmt.encode())
+                for width in (320, 640)
+                for fmt in ("avif", "webp")
+            ),
         )

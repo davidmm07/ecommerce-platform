@@ -110,3 +110,15 @@ class InvalidImportFile(ApplicationError):
 
 class ImportLimitExceeded(ApplicationError):
     code = "import_limit_exceeded"
+
+
+class InvalidImage(ApplicationError):
+    code = "invalid_image"
+
+
+class UnsupportedImageType(ApplicationError):
+    code = "unsupported_image_type"
+
+
+class ImageTooLarge(ApplicationError):
+    code = "image_too_large"
