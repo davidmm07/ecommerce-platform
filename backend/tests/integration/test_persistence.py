@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ecommerce.application.errors import ConcurrentModification, DuplicateSku, RequestInProgress
 from ecommerce.container import Container
-from ecommerce.domain.catalog.image import ProductImage
+from ecommerce.domain.catalog.image import ImageCredit, ProductImage
 from ecommerce.domain.money import Money
 from ecommerce.domain.ordering.order import Customer, Order, OrderLine, ShippingAddress
 from ecommerce.domain.ordering.pricing import WeightBasedShipping
@@ -152,6 +152,10 @@ async def test_product_images_round_trip_as_jsonb(clean_database: Container) -> 
         widths=(320, 1280),
         formats=("avif", "webp"),
         placeholder="data:image/webp;base64,AAAA",
+        origin_url="https://images.example.com/a.jpg",
+        credit=ImageCredit(
+            author="Jane Doe", license="CC BY 2.0", source_url="https://example.com/photo"
+        ),
     )
     product.replace_image(image, NOW)
     async with clean_database.unit_of_work() as uow:

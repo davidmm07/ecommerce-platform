@@ -1,7 +1,7 @@
 from typing import Any
 
 from ecommerce.domain.catalog.category import Category
-from ecommerce.domain.catalog.image import ProductImage
+from ecommerce.domain.catalog.image import ImageCredit, ProductImage
 from ecommerce.domain.catalog.product import Product
 from ecommerce.domain.catalog.sku import Sku
 from ecommerce.domain.money import Money
@@ -164,6 +164,17 @@ def _image_to_json(image: ProductImage | None) -> dict[str, Any] | None:
         "widths": list(image.widths),
         "formats": list(image.formats),
         "placeholder": image.placeholder,
+        "origin_url": image.origin_url,
+        "credit": (
+            {
+                "author": image.credit.author,
+                "license": image.credit.license,
+                "source_url": image.credit.source_url,
+                "license_url": image.credit.license_url,
+            }
+            if image.credit
+            else None
+        ),
     }
 
 
@@ -177,4 +188,6 @@ def _image_from_json(value: dict[str, Any] | None) -> ProductImage | None:
         widths=tuple(value["widths"]),
         formats=tuple(value["formats"]),
         placeholder=value["placeholder"],
+        origin_url=value.get("origin_url"),
+        credit=ImageCredit(**credit) if (credit := value.get("credit")) else None,
     )
