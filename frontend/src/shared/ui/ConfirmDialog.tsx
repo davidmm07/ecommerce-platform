@@ -44,14 +44,14 @@ export function ConfirmDialog({
         onCancel();
       }}
       aria-labelledby="confirm-dialog-title"
-      className="m-auto w-full max-w-md rounded-xl p-0 shadow-xl backdrop:bg-slate-900/40"
+      className="m-auto w-full max-w-md rounded-xl bg-surface p-0 text-fg shadow-xl ring-1 ring-line backdrop:bg-slate-950/60"
     >
       {open && (
         <div className="p-6">
-          <h2 id="confirm-dialog-title" className="text-lg font-semibold text-slate-900">
+          <h2 id="confirm-dialog-title" className="text-lg font-semibold text-fg">
             {title}
           </h2>
-          <div className="mt-2 text-sm text-slate-600">{description}</div>
+          <div className="mt-2 text-sm text-fg-muted">{description}</div>
           <div className="mt-6 flex justify-end gap-2">
             <Button variant="secondary" onClick={onCancel} disabled={loading}>
               Cancel

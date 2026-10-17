@@ -186,7 +186,7 @@ export function ProductForm({
             )}
           </form.Field>
         </div>
-        <div className="flex justify-end gap-2 border-t border-slate-100 pt-5">
+        <div className="flex justify-end gap-2 border-t border-line-soft pt-5">
           <Button variant="secondary" onClick={onCancel}>
             Cancel
           </Button>

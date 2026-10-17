@@ -5,7 +5,9 @@ import type { CartLine } from '@/features/cart/cart-store';
 import { cartSubtotal } from '@/features/cart/cart-store';
 import { describeError } from '@/shared/api/http';
 import { formatMoney, formatWeight } from '@/shared/lib/format';
+import { cn } from '@/shared/lib/cn';
 import { Card } from '@/shared/ui/display';
+import { softTone } from '@/shared/ui/styles';
 
 import { shortagesOf, useCartQuote } from '../quote';
 
@@ -22,7 +24,7 @@ export function OrderSummary({ lines, footer }: OrderSummaryProps) {
 
   return (
     <Card className="p-5">
-      <h2 className="text-base font-semibold text-slate-900">Order summary</h2>
+      <h2 className="text-base font-semibold text-fg">Order summary</h2>
       <dl className="mt-4 space-y-3 text-sm">
         <Row
           label="Subtotal"
@@ -40,24 +42,24 @@ export function OrderSummary({ lines, footer }: OrderSummaryProps) {
                 : '-'
           }
         />
-        <div className="border-t border-slate-200 pt-3">
+        <div className="border-t border-line pt-3">
           <Row
-            label={<span className="text-base font-semibold text-slate-900">Total</span>}
+            label={<span className="text-base font-semibold text-fg">Total</span>}
             value={
-              <span className="text-base font-semibold text-slate-900">
+              <span className="text-base font-semibold text-fg">
                 {totals ? formatMoney(totals.total, currency) : '-'}
               </span>
             }
           />
         </div>
       </dl>
-      <p className="mt-3 text-xs text-slate-500">
+      <p className="mt-3 text-xs text-fg-muted">
         Shipping is calculated per started kilogram and is free for orders over $100.
       </p>
       {quote.isError && (
         <div
           role="alert"
-          className="mt-4 flex gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200"
+          className={cn('mt-4 flex gap-2 rounded-lg p-3 text-sm ring-1', softTone.warning)}
         >
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
           <div>
@@ -83,8 +85,8 @@ export function OrderSummary({ lines, footer }: OrderSummaryProps) {
 function Row({ label, value }: { label: ReactNode; value: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-4">
-      <dt className="text-slate-600">{label}</dt>
-      <dd className="tabular-nums text-slate-900">{value}</dd>
+      <dt className="text-fg-muted">{label}</dt>
+      <dd className="tabular-nums text-fg">{value}</dd>
     </div>
   );
 }

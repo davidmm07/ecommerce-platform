@@ -43,7 +43,7 @@ export function OrdersPage() {
           <Link
             to="/orders/$orderId"
             params={{ orderId: row.original.id }}
-            className="font-mono font-medium text-indigo-600 hover:text-indigo-500"
+            className="font-mono font-medium text-accent-fg hover:text-accent-hover"
           >
             {row.original.number}
           </Link>
@@ -61,8 +61,8 @@ export function OrdersPage() {
         header: 'Customer',
         cell: ({ row }) => (
           <div>
-            <p className="font-medium text-slate-900">{row.original.customer_name}</p>
-            <p className="text-xs text-slate-500">{row.original.customer_email}</p>
+            <p className="font-medium text-fg">{row.original.customer_name}</p>
+            <p className="text-xs text-fg-muted">{row.original.customer_email}</p>
           </div>
         ),
       },
@@ -103,7 +103,7 @@ export function OrdersPage() {
       />
       <div className="relative mb-4 max-w-md">
         <Search
-          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
+          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-subtle"
           aria-hidden
         />
         <input
@@ -133,16 +133,16 @@ export function OrdersPage() {
       ) : (
         page && (
           <>
-            <div className="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-slate-50">
+            <div className="overflow-x-auto rounded-xl bg-surface shadow-sm ring-1 ring-line">
+              <table className="min-w-full divide-y divide-line text-sm">
+                <thead className="bg-surface-muted">
                   {table.getHeaderGroups().map((group) => (
                     <tr key={group.id}>
                       {group.headers.map((header) => (
                         <th
                           key={header.id}
                           scope="col"
-                          className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600"
+                          className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-fg-muted"
                         >
                           {flexRender(header.column.columnDef.header, header.getContext())}
                         </th>
@@ -150,11 +150,11 @@ export function OrdersPage() {
                     </tr>
                   ))}
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line-soft">
                   {table.getRowModel().rows.map((row) => (
-                    <tr key={row.id} className="hover:bg-slate-50">
+                    <tr key={row.id} className="hover:bg-surface-muted">
                       {row.getVisibleCells().map((cell) => (
-                        <td key={cell.id} className="px-4 py-3 text-slate-700">
+                        <td key={cell.id} className="px-4 py-3 text-fg-secondary">
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       ))}

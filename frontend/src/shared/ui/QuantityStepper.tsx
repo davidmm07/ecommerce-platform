@@ -24,13 +24,13 @@ export function QuantityStepper({
   return (
     <div
       className={cn(
-        'inline-flex items-center rounded-lg bg-white shadow-sm ring-1 ring-inset ring-slate-300',
+        'inline-flex items-center rounded-lg bg-surface shadow-sm ring-1 ring-inset ring-line-strong',
         height,
       )}
     >
       <button
         type="button"
-        className="grid h-full w-8 place-items-center text-slate-600 hover:text-slate-900 disabled:opacity-40"
+        className="grid h-full w-8 place-items-center text-fg-muted hover:text-fg disabled:opacity-40"
         onClick={() => onChange(clamp(value - 1))}
         disabled={value <= min}
         aria-label={`Decrease ${label}`}
@@ -54,7 +54,7 @@ export function QuantityStepper({
       />
       <button
         type="button"
-        className="grid h-full w-8 place-items-center text-slate-600 hover:text-slate-900 disabled:opacity-40"
+        className="grid h-full w-8 place-items-center text-fg-muted hover:text-fg disabled:opacity-40"
         onClick={() => onChange(clamp(value + 1))}
         disabled={value >= max}
         aria-label={`Increase ${label}`}

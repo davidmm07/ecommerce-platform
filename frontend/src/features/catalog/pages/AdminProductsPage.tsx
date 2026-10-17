@@ -79,7 +79,7 @@ export function AdminProductsPage() {
       />
       <div className="relative mb-4 max-w-md">
         <Search
-          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
+          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-subtle"
           aria-hidden
         />
         <input
@@ -140,8 +140,8 @@ export function AdminProductsPage() {
         title="Remove product?"
         description={
           <p>
-            <span className="font-medium text-slate-900">{pending?.name}</span> will no longer be
-            sold. Past orders keep their history.
+            <span className="font-medium text-fg">{pending?.name}</span> will no longer be sold.
+            Past orders keep their history.
           </p>
         }
         confirmLabel="Remove"

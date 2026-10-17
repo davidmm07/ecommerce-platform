@@ -1,9 +1,70 @@
 @import 'tailwindcss';
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --color-canvas: var(--color-slate-50);
+  --color-surface: var(--color-white);
+  --color-surface-muted: var(--color-slate-50);
+  --color-surface-hover: var(--color-slate-100);
+  --color-fg: var(--color-slate-900);
+  --color-fg-secondary: var(--color-slate-700);
+  --color-fg-muted: var(--color-slate-500);
+  --color-fg-subtle: var(--color-slate-400);
+  --color-line: var(--color-slate-200);
+  --color-line-soft: var(--color-slate-100);
+  --color-line-strong: var(--color-slate-300);
+  --color-accent: var(--color-indigo-600);
+  --color-accent-hover: var(--color-indigo-500);
+  --color-accent-fg: var(--color-indigo-600);
+  --color-accent-soft: var(--color-indigo-50);
+  --color-accent-soft-fg: var(--color-indigo-900);
+  --color-media: var(--color-slate-100);
 }
 
-html {
-  -webkit-font-smoothing: antialiased;
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  .dark {
+    color-scheme: dark;
+    --color-canvas: var(--color-slate-950);
+    --color-surface: var(--color-slate-900);
+    --color-surface-muted: color-mix(in oklab, var(--color-slate-800) 55%, var(--color-slate-900));
+    --color-surface-hover: var(--color-slate-800);
+    --color-fg: var(--color-slate-100);
+    --color-fg-secondary: var(--color-slate-300);
+    --color-fg-muted: var(--color-slate-400);
+    --color-fg-subtle: var(--color-slate-500);
+    --color-line: var(--color-slate-800);
+    --color-line-soft: color-mix(in oklab, var(--color-slate-800) 60%, var(--color-slate-900));
+    --color-line-strong: var(--color-slate-700);
+    --color-accent: var(--color-indigo-500);
+    --color-accent-hover: var(--color-indigo-400);
+    --color-accent-fg: var(--color-indigo-300);
+    --color-accent-soft: color-mix(in oklab, var(--color-indigo-500) 16%, transparent);
+    --color-accent-soft-fg: var(--color-indigo-200);
+    --color-media: var(--color-slate-800);
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-fg);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+  }
 }

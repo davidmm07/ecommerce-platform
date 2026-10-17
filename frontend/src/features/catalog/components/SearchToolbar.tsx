@@ -42,10 +42,10 @@ export function SearchToolbar({ search, categories, onChange, onReset }: SearchT
   );
 
   return (
-    <div className="space-y-3 rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+    <div className="space-y-3 rounded-xl bg-surface p-4 shadow-sm ring-1 ring-line">
       <div className="relative">
         <Search
-          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
+          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-subtle"
           aria-hidden
         />
         <input
@@ -97,12 +97,12 @@ export function SearchToolbar({ search, categories, onChange, onReset }: SearchT
           ))}
         </select>
         <div className="col-span-2 flex items-center justify-between gap-3 md:col-span-1">
-          <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+          <label className="inline-flex items-center gap-2 text-sm text-fg-secondary">
             <input
               type="checkbox"
               checked={search.in_stock === true}
               onChange={(event) => onChange({ in_stock: event.target.checked || undefined })}
-              className="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600"
+              className="size-4 rounded border-line-strong text-accent-fg focus:ring-accent"
             />
             In stock only
           </label>
@@ -113,7 +113,7 @@ export function SearchToolbar({ search, categories, onChange, onReset }: SearchT
                 setText('');
                 onReset();
               }}
-              className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-500"
+              className="inline-flex items-center gap-1 text-sm font-medium text-accent-fg hover:text-accent-hover"
             >
               <X className="size-3.5" aria-hidden />
               Clear

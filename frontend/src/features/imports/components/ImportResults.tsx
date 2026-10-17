@@ -41,7 +41,7 @@ export function ImportResults({ report }: { report: ImportReport }) {
   return (
     <section className="space-y-4" aria-label="Import results">
       {report.dry_run && (
-        <p className="rounded-lg bg-indigo-50 px-4 py-3 text-sm text-indigo-900 ring-1 ring-indigo-100">
+        <p className="rounded-lg bg-accent-soft px-4 py-3 text-sm text-accent-soft-fg ring-1 ring-accent/20">
           Dry run: nothing was saved. Upload again without "Validate only" to apply these changes.
         </p>
       )}
@@ -64,8 +64,8 @@ export function ImportResults({ report }: { report: ImportReport }) {
             className={cn(
               'rounded-full px-3 py-1 text-sm font-medium ring-1 ring-inset',
               filter === option.value
-                ? 'bg-slate-900 text-white ring-slate-900'
-                : 'bg-white text-slate-700 ring-slate-300 hover:bg-slate-50',
+                ? 'bg-fg text-surface ring-fg'
+                : 'bg-surface text-fg-secondary ring-line-strong hover:bg-surface-muted',
             )}
           >
             {option.label}
@@ -73,8 +73,8 @@ export function ImportResults({ report }: { report: ImportReport }) {
         ))}
       </div>
       <Card className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+        <table className="min-w-full divide-y divide-line text-sm">
+          <thead className="bg-surface-muted text-left text-xs font-semibold uppercase tracking-wide text-fg-muted">
             <tr>
               <th scope="col" className="w-16 px-4 py-3">
                 Line
@@ -90,24 +90,24 @@ export function ImportResults({ report }: { report: ImportReport }) {
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-line-soft">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={4} className="px-4 py-8 text-center text-fg-muted">
                   No rows in this view.
                 </td>
               </tr>
             ) : (
               rows.map((row) => (
                 <tr key={row.line}>
-                  <td className="px-4 py-3 tabular-nums text-slate-500">{row.line}</td>
+                  <td className="px-4 py-3 tabular-nums text-fg-muted">{row.line}</td>
                   <td className="px-4 py-3 font-mono text-xs">{row.sku ?? '-'}</td>
                   <td className="px-4 py-3">
                     <Badge tone={OUTCOME_TONE[row.outcome]} className="capitalize">
                       {row.outcome}
                     </Badge>
                   </td>
-                  <td className="px-4 py-3 text-slate-700">
+                  <td className="px-4 py-3 text-fg-secondary">
                     {row.messages.length > 0 ? (
                       <ul className="list-inside list-disc space-y-0.5">
                         {row.messages.map((message) => (
@@ -115,7 +115,7 @@ export function ImportResults({ report }: { report: ImportReport }) {
                         ))}
                       </ul>
                     ) : (
-                      <span className="text-slate-400">-</span>
+                      <span className="text-fg-subtle">-</span>
                     )}
                   </td>
                 </tr>

@@ -4,8 +4,8 @@ import { TEST_CARDS } from '../card';
 
 export function TestCards({ onPick }: { onPick: (number: string) => void }) {
   return (
-    <details className="rounded-lg bg-indigo-50/60 p-3 text-sm ring-1 ring-indigo-100">
-      <summary className="flex cursor-pointer items-center gap-2 font-medium text-indigo-900">
+    <details className="rounded-lg bg-accent-soft p-3 text-sm ring-1 ring-accent/20">
+      <summary className="flex cursor-pointer items-center gap-2 font-medium text-accent-soft-fg">
         <CreditCard className="size-4" aria-hidden />
         Payments are simulated, pick a test card
       </summary>
@@ -15,15 +15,15 @@ export function TestCards({ onPick }: { onPick: (number: string) => void }) {
             <button
               type="button"
               onClick={() => onPick(card.number)}
-              className="font-mono text-indigo-700 underline-offset-2 hover:underline"
+              className="font-mono text-accent-fg underline-offset-2 hover:underline"
             >
               {card.number}
             </button>
-            <span className="text-slate-600">{card.outcome}</span>
+            <span className="text-fg-muted">{card.outcome}</span>
           </li>
         ))}
       </ul>
-      <p className="mt-3 text-xs text-slate-500">
+      <p className="mt-3 text-xs text-fg-muted">
         Use any future expiry date and any 3 digit CVC. No real payment is made.
       </p>
     </details>

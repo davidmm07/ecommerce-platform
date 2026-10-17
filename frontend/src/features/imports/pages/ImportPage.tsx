@@ -78,25 +78,23 @@ export function ImportPage() {
             className={cn(
               'flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors',
               dragging
-                ? 'border-indigo-500 bg-indigo-50'
-                : 'border-slate-300 hover:border-indigo-400',
+                ? 'border-accent bg-accent-soft'
+                : 'border-line-strong hover:border-accent-hover',
             )}
           >
             {file ? (
               <>
-                <FileSpreadsheet className="size-10 text-indigo-500" aria-hidden />
-                <p className="mt-3 font-medium text-slate-900">{file.name}</p>
-                <p className="text-sm text-slate-500">
+                <FileSpreadsheet className="size-10 text-accent-fg" aria-hidden />
+                <p className="mt-3 font-medium text-fg">{file.name}</p>
+                <p className="text-sm text-fg-muted">
                   {(file.size / 1024).toFixed(1)} KB, click to change
                 </p>
               </>
             ) : (
               <>
-                <UploadCloud className="size-10 text-slate-400" aria-hidden />
-                <p className="mt-3 font-medium text-slate-900">
-                  Drop a CSV file here or click to browse
-                </p>
-                <p className="text-sm text-slate-500">UTF-8, up to 5 MB and 5,000 rows</p>
+                <UploadCloud className="size-10 text-fg-subtle" aria-hidden />
+                <p className="mt-3 font-medium text-fg">Drop a CSV file here or click to browse</p>
+                <p className="text-sm text-fg-muted">UTF-8, up to 5 MB and 5,000 rows</p>
               </>
             )}
             <input
@@ -111,12 +109,12 @@ export function ImportPage() {
             />
           </label>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+            <label className="inline-flex items-center gap-2 text-sm text-fg-secondary">
               <input
                 type="checkbox"
                 checked={dryRun}
                 onChange={(event) => setDryRun(event.target.checked)}
-                className="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600"
+                className="size-4 rounded border-line-strong text-accent-fg focus:ring-accent"
               />
               Validate only (dry run, nothing is saved)
             </label>
@@ -133,10 +131,10 @@ export function ImportPage() {
             <ErrorState message={localError ?? describeError(upload.error)} />
           )}
         </Card>
-        <Card className="space-y-3 p-5 text-sm text-slate-700">
-          <h2 className="text-base font-semibold text-slate-900">File format</h2>
+        <Card className="space-y-3 p-5 text-sm text-fg-secondary">
+          <h2 className="text-base font-semibold text-fg">File format</h2>
           <p>The first row must name these columns, in any order:</p>
-          <code className="block break-all rounded-lg bg-slate-900 p-3 font-mono text-xs leading-relaxed text-slate-100">
+          <code className="block break-all rounded-lg bg-slate-900 p-3 font-mono text-xs leading-relaxed text-slate-100 dark:bg-slate-950 dark:ring-1 dark:ring-line">
             {COLUMNS.join(',')}
           </code>
           <ul className="list-inside list-disc space-y-1">

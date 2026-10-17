@@ -7,7 +7,7 @@ import type {
 import { useId } from 'react';
 
 import { cn } from '@/shared/lib/cn';
-import { inputClasses as controlClasses } from '@/shared/ui/styles';
+import { inputClasses as controlClasses, dangerText } from '@/shared/ui/styles';
 
 type FieldShellProps = {
   id: string;
@@ -30,17 +30,17 @@ export function FieldShell({
 }: FieldShellProps) {
   return (
     <div className={cn('space-y-1.5', className)}>
-      <label htmlFor={id} className="block text-sm font-medium text-slate-800">
+      <label htmlFor={id} className="block text-sm font-medium text-fg">
         {label}
         {required && <span className="ml-0.5 text-rose-500">*</span>}
       </label>
       {children}
       {error ? (
-        <p id={`${id}-error`} role="alert" className="text-xs font-medium text-rose-600">
+        <p id={`${id}-error`} role="alert" className={cn('text-xs font-medium', dangerText)}>
           {error}
         </p>
       ) : hint ? (
-        <p id={`${id}-hint`} className="text-xs text-slate-500">
+        <p id={`${id}-hint`} className="text-xs text-fg-muted">
           {hint}
         </p>
       ) : null}
