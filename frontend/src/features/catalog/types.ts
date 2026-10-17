@@ -26,6 +26,19 @@ export type Category = {
   label: string;
 };
 
+export type ImageSource = {
+  type: string;
+  srcset: string;
+};
+
+export type ProductImage = {
+  url: string;
+  width: number;
+  height: number;
+  placeholder: string;
+  sources: ImageSource[];
+};
+
 export type Product = {
   id: string;
   sku: string;
@@ -39,6 +52,7 @@ export type Product = {
   in_stock: boolean;
   weight_kg: string;
   version: number;
+  image: ProductImage | null;
   created_at: string;
   updated_at: string;
 };

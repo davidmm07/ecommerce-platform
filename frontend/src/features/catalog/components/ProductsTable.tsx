@@ -6,7 +6,8 @@ import { useMemo } from 'react';
 
 import { cn } from '@/shared/lib/cn';
 import { formatDateTime, formatMoney, formatWeight } from '@/shared/lib/format';
-import { buttonClasses } from '@/shared/ui/styles';
+import { ResponsiveImage } from '@/shared/ui/ResponsiveImage';
+import { buttonClasses, dangerHover, dangerText } from '@/shared/ui/styles';
 
 import type { Product } from '../types';
 import { StockBadge } from './StockBadge';
@@ -36,9 +37,17 @@ export function ProductsTable({
         accessorKey: 'name',
         header: 'Name',
         cell: ({ row }) => (
-          <div>
-            <p className="font-medium text-slate-900">{row.original.name}</p>
-            <p className="text-xs text-slate-500">{row.original.category_label}</p>
+          <div className="flex items-center gap-3">
+            <ResponsiveImage
+              image={row.original.image}
+              alt={row.original.name}
+              sizes="48px"
+              className="size-12 shrink-0 rounded-md"
+            />
+            <div>
+              <p className="font-medium text-fg">{row.original.name}</p>
+              <p className="text-xs text-fg-muted">{row.original.category_label}</p>
+            </div>
           </div>
         ),
       },
@@ -73,7 +82,7 @@ export function ProductsTable({
         header: 'Created',
         sortDescFirst: true,
         cell: ({ row }) => (
-          <span className="whitespace-nowrap text-slate-500">
+          <span className="whitespace-nowrap text-fg-muted">
             {formatDateTime(row.original.created_at)}
           </span>
         ),
@@ -94,7 +103,7 @@ export function ProductsTable({
             </Link>
             <button
               type="button"
-              className={cn(buttonClasses('ghost', 'sm'), 'text-rose-600 hover:bg-rose-50')}
+              className={cn(buttonClasses('ghost', 'sm'), dangerText, dangerHover)}
               onClick={() => onArchive(row.original)}
               aria-label={`Delete ${row.original.name}`}
             >
@@ -121,9 +130,9 @@ export function ProductsTable({
   });
 
   return (
-    <div className="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
-      <table className="min-w-full divide-y divide-slate-200 text-sm">
-        <thead className="bg-slate-50">
+    <div className="overflow-x-auto rounded-xl bg-surface shadow-sm ring-1 ring-line">
+      <table className="min-w-full divide-y divide-line text-sm">
+        <thead className="bg-surface-muted">
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
               {headerGroup.headers.map((header) => {
@@ -137,13 +146,13 @@ export function ProductsTable({
                     aria-sort={
                       sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : undefined
                     }
-                    className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600"
+                    className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-fg-muted"
                   >
                     {canSort ? (
                       <button
                         type="button"
                         onClick={header.column.getToggleSortingHandler()}
-                        className="inline-flex items-center gap-1 uppercase hover:text-slate-900"
+                        className="inline-flex items-center gap-1 uppercase hover:text-fg"
                       >
                         {content}
                         {sorted === 'asc' ? (
@@ -163,11 +172,11 @@ export function ProductsTable({
             </tr>
           ))}
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-line-soft">
           {table.getRowModel().rows.map((row) => (
-            <tr key={row.id} className="hover:bg-slate-50">
+            <tr key={row.id} className="hover:bg-surface-muted">
               {row.getVisibleCells().map((cell) => (
-                <td key={cell.id} className="px-4 py-3 align-middle text-slate-700">
+                <td key={cell.id} className="px-4 py-3 align-middle text-fg-secondary">
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>
               ))}

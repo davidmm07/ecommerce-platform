@@ -84,8 +84,12 @@ export function ShopPage() {
               <div
                 className={`grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${products.isPlaceholderData ? 'opacity-60' : ''}`}
               >
-                {page.items.map((product) => (
-                  <ProductCard key={product.id} product={product} />
+                {page.items.map((product, index) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    priority={page.page === 1 && index < 4}
+                  />
                 ))}
               </div>
               <Pagination
@@ -109,7 +113,7 @@ function ProductGridSkeleton() {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" aria-hidden>
       {Array.from({ length: 8 }, (_, index) => (
-        <div key={index} className="h-80 animate-pulse rounded-xl bg-white ring-1 ring-slate-200" />
+        <div key={index} className="h-80 animate-pulse rounded-xl bg-surface ring-1 ring-line" />
       ))}
     </div>
   );

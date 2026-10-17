@@ -2,6 +2,7 @@ import { Store, useStore } from '@tanstack/react-store';
 
 import type { Product } from '@/features/catalog/types';
 import { multiplyMoney, sumMoney } from '@/shared/lib/format';
+import type { ResponsiveImageData } from '@/shared/ui/ResponsiveImage';
 
 export const MAX_QUANTITY_PER_LINE = 100;
 const STORAGE_KEY = 'ecommerce.cart.v1';
@@ -14,6 +15,7 @@ export type CartLine = {
   currency: string;
   quantity: number;
   maxQuantity: number;
+  image: ResponsiveImageData | null;
 };
 
 export type CartState = {
@@ -25,7 +27,11 @@ function readStorage(): CartState {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : null;
     if (parsed && typeof parsed === 'object' && Array.isArray((parsed as CartState).lines)) {
-      return { lines: (parsed as CartState).lines.filter(isCartLine) };
+      return {
+        lines: (parsed as CartState).lines
+          .filter(isCartLine)
+          .map((line) => ({ ...line, image: line.image ?? null })),
+      };
     }
   } catch {
     return { lines: [] };
@@ -44,7 +50,8 @@ function isCartLine(value: unknown): value is CartLine {
     typeof line.name === 'string' &&
     typeof line.unitPrice === 'string' &&
     typeof line.quantity === 'number' &&
-    typeof line.maxQuantity === 'number'
+    typeof line.maxQuantity === 'number' &&
+    (line.image === undefined || line.image === null || typeof line.image === 'object')
   );
 }
 
@@ -79,6 +86,7 @@ export const cartActions = {
                   ...line,
                   name: product.name,
                   unitPrice: product.price,
+                  image: product.image,
                   maxQuantity,
                   quantity: clamp(line.quantity + quantity, maxQuantity),
                 }
@@ -97,6 +105,7 @@ export const cartActions = {
             currency: product.currency,
             quantity: clamp(quantity, maxQuantity),
             maxQuantity,
+            image: product.image,
           },
         ],
       };

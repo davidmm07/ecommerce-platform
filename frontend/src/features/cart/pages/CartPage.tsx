@@ -4,9 +4,10 @@ import { ShoppingBag, Trash2 } from 'lucide-react';
 import { OrderSummary } from '@/features/checkout/components/OrderSummary';
 import { useCartQuote } from '@/features/checkout/quote';
 import { formatMoney, multiplyMoney } from '@/shared/lib/format';
-import { buttonClasses } from '@/shared/ui/styles';
+import { buttonClasses, dangerHover } from '@/shared/ui/styles';
 import { Card, EmptyState, PageHeader } from '@/shared/ui/display';
 import { QuantityStepper } from '@/shared/ui/QuantityStepper';
+import { ResponsiveImage } from '@/shared/ui/ResponsiveImage';
 
 import { cartActions, useCartLines } from '../cart-store';
 
@@ -38,19 +39,25 @@ export function CartPage() {
     <>
       <PageHeader title="Your cart" description="Review quantities before checking out." />
       <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
-        <Card className="divide-y divide-slate-100">
+        <Card className="divide-y divide-line-soft">
           {lines.map((line) => (
             <div key={line.productId} className="flex flex-wrap items-center gap-4 p-4">
+              <ResponsiveImage
+                image={line.image}
+                alt={line.name}
+                sizes="64px"
+                className="size-16 shrink-0 rounded-lg"
+              />
               <div className="min-w-0 flex-1">
                 <Link
                   to="/products/$productId"
                   params={{ productId: line.productId }}
-                  className="font-medium text-slate-900 hover:text-indigo-600"
+                  className="font-medium text-fg hover:text-accent-fg"
                 >
                   {line.name}
                 </Link>
-                <p className="font-mono text-xs text-slate-500">{line.sku}</p>
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="font-mono text-xs text-fg-muted">{line.sku}</p>
+                <p className="mt-1 text-sm text-fg-muted">
                   {formatMoney(line.unitPrice, line.currency)} each
                 </p>
               </div>
@@ -61,13 +68,13 @@ export function CartPage() {
                 label={`quantity of ${line.name}`}
                 size="sm"
               />
-              <p className="w-24 text-right font-medium tabular-nums text-slate-900">
+              <p className="w-24 text-right font-medium tabular-nums text-fg">
                 {formatMoney(multiplyMoney(line.unitPrice, line.quantity), line.currency)}
               </p>
               <button
                 type="button"
                 onClick={() => cartActions.remove(line.productId)}
-                className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                className={`rounded-md p-2 text-fg-subtle ${dangerHover}`}
                 aria-label={`Remove ${line.name}`}
               >
                 <Trash2 className="size-4" aria-hidden />

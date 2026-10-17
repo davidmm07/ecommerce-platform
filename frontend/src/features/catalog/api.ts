@@ -1,5 +1,5 @@
 import type { Page } from '@/shared/api/http';
-import { getJson, request } from '@/shared/api/http';
+import { getJson, request, upload } from '@/shared/api/http';
 
 import type { Category, Product, ProductChanges, ProductInput, ProductQuery } from './types';
 
@@ -17,6 +17,27 @@ export const catalogApi = {
     getJson<Product>(`/products/${id}`, {
       method: 'PATCH',
       body: changes,
+      headers: { 'If-Match': `"${version}"` },
+    }),
+
+  uploadImage: (
+    id: string,
+    version: number,
+    file: File,
+    onProgress?: (fraction: number) => void,
+  ) => {
+    const body = new FormData();
+    body.append('file', file);
+    return upload<Product>(`/products/${id}/image`, body, {
+      method: 'PUT',
+      headers: { 'If-Match': `"${version}"` },
+      onProgress,
+    });
+  },
+
+  removeImage: (id: string, version: number) =>
+    getJson<Product>(`/products/${id}/image`, {
+      method: 'DELETE',
       headers: { 'If-Match': `"${version}"` },
     }),
 

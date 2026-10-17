@@ -27,6 +27,7 @@ const lines: CartLine[] = [
     currency: 'USD',
     quantity: 2,
     maxQuantity: 5,
+    image: null,
   },
 ];
 

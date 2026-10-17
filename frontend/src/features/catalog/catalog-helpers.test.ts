@@ -18,6 +18,7 @@ const product: Product = {
   in_stock: true,
   weight_kg: '0.350',
   version: 3,
+  image: null,
   created_at: '2026-10-17T12:00:00Z',
   updated_at: '2026-10-17T12:00:00Z',
 };

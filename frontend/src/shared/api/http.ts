@@ -115,15 +115,25 @@ export async function getJson<T>(path: string, options: RequestOptions = {}): Pr
 }
 
 async function readProblem(response: Response): Promise<ProblemDetails> {
+  let text = '';
+  try {
+    text = await response.text();
+  } catch {
+    text = '';
+  }
+  return parseProblem(response.status, response.statusText, text);
+}
+
+function parseProblem(status: number, statusText: string, text: string): ProblemDetails {
   const fallback: ProblemDetails = {
     type: 'about:blank',
-    title: response.statusText || 'Request failed',
-    status: response.status,
-    detail: `The server answered with status ${response.status}.`,
+    title: statusText || 'Request failed',
+    status,
+    detail: `The server answered with status ${status}.`,
     code: 'http_error',
   };
   try {
-    const payload: unknown = await response.json();
+    const payload: unknown = JSON.parse(text);
     if (payload && typeof payload === 'object' && 'status' in payload) {
       return { ...fallback, ...(payload as Partial<ProblemDetails>) };
     }
@@ -131,6 +141,45 @@ async function readProblem(response: Response): Promise<ProblemDetails> {
     return fallback;
   }
   return fallback;
+}
+
+export type UploadOptions = {
+  method?: 'POST' | 'PUT';
+  headers?: Record<string, string>;
+  onProgress?: (fraction: number) => void;
+  signal?: AbortSignal;
+};
+
+export function upload<T>(path: string, body: FormData, options: UploadOptions = {}): Promise<T> {
+  const { method = 'POST', headers = {}, onProgress, signal } = options;
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, buildUrl(path));
+    xhr.setRequestHeader('Accept', 'application/json');
+    for (const [name, value] of Object.entries(headers)) {
+      xhr.setRequestHeader(name, value);
+    }
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress(event.loaded / event.total);
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as T);
+        } catch (error) {
+          reject(new NetworkError(error));
+        }
+        return;
+      }
+      reject(new ApiError(parseProblem(xhr.status, xhr.statusText, xhr.responseText)));
+    };
+    xhr.onerror = () => reject(new NetworkError(new Error('upload failed')));
+    xhr.onabort = () => reject(new DOMException('The upload was cancelled', 'AbortError'));
+    signal?.addEventListener('abort', () => xhr.abort(), { once: true });
+    xhr.send(body);
+  });
 }
 
 export function describeError(error: unknown): string {

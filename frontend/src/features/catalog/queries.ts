@@ -54,6 +54,29 @@ export function useUpdateProduct() {
   });
 }
 
+export function useUploadProductImage(onProgress?: (fraction: number) => void) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ product, file }: { product: Product; file: File }) =>
+      catalogApi.uploadImage(product.id, product.version, file, onProgress),
+    onSuccess: (product) => {
+      queryClient.setQueryData(productKeys.detail(product.id), product);
+      return queryClient.invalidateQueries({ queryKey: productKeys.lists() });
+    },
+  });
+}
+
+export function useRemoveProductImage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (product: Product) => catalogApi.removeImage(product.id, product.version),
+    onSuccess: (product) => {
+      queryClient.setQueryData(productKeys.detail(product.id), product);
+      return queryClient.invalidateQueries({ queryKey: productKeys.lists() });
+    },
+  });
+}
+
 export function useArchiveProduct() {
   const queryClient = useQueryClient();
   return useMutation({
