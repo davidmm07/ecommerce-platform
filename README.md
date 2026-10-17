@@ -42,14 +42,14 @@ payment releases the stock it reserved.
 |------|---------------------|
 | Product CRUD | Create, read, partial update and soft delete, with optimistic concurrency (`ETag` / `If-Match`) |
 | CSV import | Upload or CLI, row level report, dry run, upsert by SKU, duplicate detection, one transaction |
-| Product images | Optional per product. Validated and normalized server side, AVIF and WebP in 5 widths, content hashed immutable URLs, blur-up placeholders, responsive `<picture>` |
+| Product images | Optional per product. Uploaded or imported from a URL (SSRF safe), validated and normalized server side, AVIF and WebP in 5 widths, content hashed immutable URLs, blur-up placeholders, responsive `<picture>`, photo credits |
 | Search | PostgreSQL full-text search plus trigram fuzzy matching, filters, sorting and pagination |
 | Purchase | Cart, server side quote, weight based shipping, simulated card payments, idempotent checkout |
 | Consistency | Row locks prevent overselling, a failed payment releases its stock (compensation) |
 | API | Versioned REST, RFC 9457 Problem Details, OpenAPI docs, request ids, size limits |
 | Frontend | TanStack Router, Query, Table, Form and Store, Zod validation, Tailwind CSS |
 | Theming | Light, dark and system themes from semantic design tokens, no flash on load, CSP friendly |
-| Quality | 252 backend tests (97% coverage) incl. real PostgreSQL via Testcontainers, 41 frontend tests, `mypy --strict`, architecture contracts, CI |
+| Quality | 295 backend tests (97% coverage) incl. real PostgreSQL via Testcontainers, 45 frontend tests, `mypy --strict`, architecture contracts, CI |
 | Delivery | Monorepo, multi stage non-root images, Compose stack with migrations, health checks and a seed job |
 
 ## Quick start with Docker
@@ -66,7 +66,10 @@ make seed
 
 `make up` creates a git ignored `.env` with a random database password the first time, builds the
 images and starts PostgreSQL, the migration job, the API and the web app. `make seed` imports the
-sample CSV and a photo for every product through the same use cases the UI uses.
+sample CSV and then downloads a photo for every product from the URLs listed in
+[`data/product-images.csv`](data/product-images.csv), through the same use cases the UI uses. The
+photo step needs internet access; without it the products are still imported and show a
+placeholder.
 
 | URL | What |
 |-----|------|
@@ -140,7 +143,7 @@ Line numbers include the header, so they match what a spreadsheet shows.
 | 16 | DL-007 | Stock `-5` | Stock cannot be negative | Failed |
 | 20 | XS-001 | Name `<script>alert('xss')</script>` | Text fields are plain text, markup is rejected (React also escapes output) | Failed |
 | 25 | HD-099 | Empty name | Name is required | Failed |
-| 29 | SQL-001 | Name `Robert'); DROP TABLE products;--` | A legitimate string: stored verbatim, parameterized SQL keeps it harmless | Created |
+| 29 | SQL-001 | Name `Robert'); DROP TABLE products;--` | Harmless to the database (parameterized SQL), but it is an attack payload, not a product name, so a domain rule rejects it | Failed |
 | 31 | WB-033 | Em dash and trademark sign | UTF-8 is preserved and normalized to NFC | Created |
 | 41 | WS-001 | Name made only of spaces | Whitespace is trimmed, so it is empty | Failed |
 | 47 | MB-001 | Price `0.00` | Sellable products must cost more than 0, promotions belong in discounts | Failed |
@@ -153,8 +156,32 @@ Line numbers include the header, so they match what a spreadsheet shows.
 | 11, 56, 89 | BS-021 | Same SKU three times, line 89 repeats line 11 | Last row wins, every superseded row is reported | Line 89 created |
 | 62, 63 | - | Blank rows | Ignored and reported | Skipped |
 
-Summary: **84 created, 5 skipped, 8 failed**. Importing the same file again reports 84 unchanged
+Summary: **83 created, 5 skipped, 9 failed**. Importing the same file again reports 83 unchanged
 rows, so the import is idempotent.
+
+### Why the SQL-001 row is rejected
+
+The row could never harm the database. Every query is parameterized, so PostgreSQL receives the
+name as a value and never as SQL, and storing it verbatim would be perfectly safe. That is the
+defense that matters, and it does not depend on what the data looks like.
+
+It is still rejected because it is bad catalog data: no real product is called
+`Robert'); DROP TABLE products;--`, and the string could become dangerous later in a system that
+is less careful, such as a reporting script that concatenates SQL or a CSV export opened in a
+spreadsheet. So the domain applies a **data quality rule** to product names and descriptions
+(`reject_sql_payload` in `domain/text.py`) next to the plain text rule that rejects markup.
+
+The rule looks for statement shapes rather than single words, to keep false positives low:
+
+| Rejected | Accepted |
+|----------|----------|
+| `'); DROP TABLE products;--`, `TRUNCATE TABLE x`, `DELETE FROM`, `INSERT INTO` | `Drop Earrings`, `Table Lamp`, `Delete Key Caps` |
+| `' OR '1'='1`, `UNION SELECT`, `UPDATE users SET role = 'admin'` | `Robert's Running Shoes`, `Select from 6 colors`, `Update your set of tools` |
+| `;--`, `/* ... */`, `pg_sleep`, `xp_cmdshell`, `EXEC(` | `Rock & Roll; Vol. 2`, `50% off -- today only` |
+
+The same patterns run in the product form (Zod), so the admin sees the message before submitting.
+This is a deny list and is meant as data hygiene, not as the security boundary: parameterized
+queries, the database role and constraints remain what keeps SQL injection out.
 
 ## Approach
 
@@ -267,7 +294,7 @@ The dependency rule is **enforced in CI** with `import-linter` contracts in
 |   |-- src/shared/            HTTP client, UI components, formatting and form helpers
 |   `-- nginx/                 production web server config
 |-- data/products-sample.csv   the provided example file
-|-- data/images/               openly licensed product photos named by SKU, with credits
+|-- data/product-images.csv    photo URL, author and license per SKU (no binaries in git)
 |-- docker-compose.yml         db, migrate, api, web and seed services
 |-- Makefile                   one entry point for every workflow
 `-- .github/workflows/ci.yml   lint, types, tests, build, and a Compose smoke test
@@ -338,6 +365,7 @@ Base path `/api/v1`. Full schema at `/docs` (Swagger UI) and `/openapi.json`.
 | PATCH | `/products/{id}` | Partial update, optional `If-Match` | 200 + `ETag` |
 | DELETE | `/products/{id}` | Archive (soft delete), optional `If-Match` | 204 |
 | PUT | `/products/{id}/image` | Upload or replace the image (multipart), optional `If-Match` | 200 + `ETag` |
+| PUT | `/products/{id}/image/from-url` | Download, process and attach an image from an https URL, optional credit and `If-Match` | 200 + `ETag` |
 | DELETE | `/products/{id}/image` | Remove the image, optional `If-Match` | 200 + `ETag` |
 | POST | `/product-imports` | Multipart CSV upload, `dry_run` query flag | 200 + import report |
 | POST | `/checkout/quote` | Price a cart: subtotal, shipping, total | 200 |
@@ -371,7 +399,7 @@ Validation happens in three layers, each with its own job:
    fields (`extra="forbid"`). Limits come from domain constants, so the OpenAPI document is
    accurate.
 2. **Domain (value objects and factories):** the business rules: SKU format, plain text without
-   markup or control characters, price greater than 0 and at most 1,000,000, stock and weight
+   markup, control characters or SQL injection payloads, price greater than 0 and at most 1,000,000, stock and weight
    ranges, email and postal code formats, Luhn check for cards, state machine for orders. The
    `FieldErrors` collector reports **all** invalid fields of a request or CSV row at once.
 3. **Database:** `CHECK` constraints, a partial unique index on active SKUs, foreign keys and
@@ -413,6 +441,8 @@ the `request_id` for support, and field level details when relevant:
 | File or body too large | 413 | `import_limit_exceeded` / `image_too_large` / `payload_too_large` |
 | Not a JPEG, PNG, WebP or AVIF image | 415 | `unsupported_image_type` |
 | Corrupted, truncated or too small image | 422 | `invalid_image` |
+| Image URL not https, private network address, wrong port or host | 422 | `invalid_image_source` |
+| Image URL unreachable, not 200, timed out or too many redirects | 502 | `image_source_unavailable` |
 | Anything unexpected | 500 | `internal_error`, details only in the logs |
 
 Domain and application errors know nothing about HTTP. The presentation layer maps exception
@@ -504,13 +534,17 @@ wildcards are escaped, so `%` and `_` are searched literally.
 ## Product images
 
 The image is **optional**: a product without a photo shows a neutral placeholder, and an admin can
-add, replace or remove it at any time from the product edit page. In the database it is one
-nullable `JSONB` column with the image metadata, while the files live in object storage.
+add, replace or remove it at any time from the product edit page, either by uploading a file or by
+pasting an image URL. In the database it is one nullable `JSONB` column with the image metadata
+(including the origin URL and the photo credit when there is one), while the files live in object
+storage.
 
 ```mermaid
 flowchart LR
     A["Admin drops a file"] --> B["Browser: type and size check,<br/>downscale above 2560 px, preview"]
     B -->|"PUT /products/{id}/image<br/>multipart + If-Match, progress bar"| C["API: size limit,<br/>format from magic bytes"]
+    U["Admin pastes a URL,<br/>or the seed manifest"] -->|"PUT /products/{id}/image/from-url"| R["SSRF safe fetcher:<br/>https, public IPs, size and time limits"]
+    R --> C
     C --> D["Pillow in a worker thread:<br/>EXIF orientation, sRGB, strip metadata"]
     D --> E["5 widths x AVIF + WebP<br/>+ 24 px blur placeholder"]
     E --> F["Object storage:<br/>content hashed keys"]
@@ -543,6 +577,34 @@ flowchart LR
    update fails, the new files are deleted. After a successful replace or removal, the old files
    are deleted on a best effort basis, with a warning logged if that fails.
 
+### Importing from a URL
+
+`PUT /products/{id}/image/from-url` takes `{url, credit?}`. The **server** downloads the file and
+sends the bytes through exactly the same validation and rendition pipeline as an upload, so a
+remote image ends up as local AVIF and WebP files with immutable URLs. Customers never load the
+third party URL: there is no hotlinking, the CSP keeps `img-src` on the shop's own origin, a remote site going down
+or changing the photo does not break the shop, and visitors are not tracked by other hosts.
+
+Fetching a URL chosen by a user is a classic **SSRF** risk (making the server call
+`http://169.254.169.254/` or an internal admin panel), so `HttpImageFetcher` is strict:
+
+- only `https`, the default port, and no credentials in the URL;
+- the host is resolved and **every address must be public** (`ipaddress.is_global`), which blocks
+  loopback, private ranges, link-local cloud metadata, CGNAT, multicast and IPv6 equivalents;
+- redirects are followed manually, at most 3, and every hop is checked again, so a public URL
+  cannot bounce to an internal one;
+- connect and read timeouts, a `Content-Length` check and a streamed byte limit
+  (`APP_IMAGE_MAX_BYTES`), and an `image/*` content type are required;
+- an optional host allow list (`APP_IMAGE_FETCH_ALLOWED_HOSTS`) for production, where only known
+  CDNs or a DAM should be reachable.
+
+The checks happen before connecting, which leaves a small DNS rebinding window between the check
+and the connection. Pinning the resolved address in a custom transport, or sending the traffic
+through an egress proxy, closes it, and is listed as a next step.
+
+`APP_IMAGE_FETCH_ALLOW_HTTP` and `APP_IMAGE_FETCH_ALLOW_PRIVATE_NETWORKS` exist only for local
+development and tests (for example a MinIO bucket on `localhost`).
+
 ### Loading and showing
 
 - The API returns `image: {url, width, height, placeholder, sources}`. `sources` holds an AVIF
@@ -559,6 +621,9 @@ flowchart LR
 - **Blur-up:** a 24 px WebP placeholder (about 200 bytes) is inlined in the API response as a data
   URI, so it renders instantly and the real image fades in over it. If a file is missing, a
   neutral fallback appears instead of a broken icon.
+- **Photo credits** are part of the image metadata (`author`, `license`, `source_url`,
+  `license_url`) and are shown under the photo on the product page and in the image manager, as CC
+  BY licenses require. Links only accept `http(s)` and use `rel="noopener noreferrer nofollow"`.
 - nginx serves `/media/` straight from the storage volume with the right MIME types, immutable
   caching and no gzip, since images are already compressed. In production the same keys sit in S3,
   R2 or MinIO behind a CDN.
@@ -573,12 +638,29 @@ implement the same `ObjectStorage` port and are selected in the composition root
 
 ### Sample photos
 
-Every one of the 84 sample products has a real, openly licensed photo in
-[`data/images`](data/images), named after its SKU. The photos were found through the Openverse
-catalog and are CC0, public domain, CC BY or CC BY-SA. Each one is credited with its author, license
-and source in [`data/images/CREDITS.md`](data/images/CREDITS.md). `make seed` runs
-`ecommerce import-images /data/images`, which feeds the files through the same pipeline as an
-upload. It is idempotent: unchanged files are skipped by content hash.
+The repository contains **no image binaries**. Instead,
+[`data/product-images.csv`](data/product-images.csv) (about 19 KB) lists one openly licensed photo
+per sample product:
+
+```text
+sku,image_url,author,license,license_url,source_url
+```
+
+The 83 photos were found through the Openverse catalog and are CC0, public domain, CC BY or CC
+BY-SA, hosted on Flickr, rawpixel, StockSnap and Wikimedia Commons. `make seed` runs
+`ecommerce import-images /data/product-images.csv`, which calls the URL import use case for each
+row with up to 4 downloads in parallel:
+
+- rows whose SKU does not exist are reported as `not_found`;
+- a product that already has an image from the same URL is `unchanged`, so seeding is idempotent
+  and does not download anything the second time;
+- a failed download (offline, removed photo) is reported and the product keeps its placeholder.
+  The command still succeeds, unless `--strict` is passed, which turns any failure into exit code 1.
+
+Committing the photos made seeding work offline, but it put about 8.6 MB of binaries in git history
+forever, and every replaced photo would add more. The manifest keeps the repository small, keeps
+licensing data reviewable in a diff, and exercises the same code path an admin uses to import from
+a URL.
 
 ## Frontend
 
@@ -622,10 +704,10 @@ the browser talks to one origin and the Content Security Policy can stay strict.
 
 | Suite | Count | What it covers |
 |-------|-------|----------------|
-| Backend unit | 178 | Domain rules, use cases with in-memory adapters, CSV parsing (including the full sample file), image processing (orientation, metadata, alpha, bombs, truncated and fake files), local and S3 storage (moto), payment simulation, retries, logging |
-| Backend integration | 31 | Real PostgreSQL via Testcontainers: repositories, optimistic locking, constraints, migrations against the models, search, concurrent checkout, imports, image metadata, CLI |
-| Backend API | 43 | HTTP behaviour end to end: status codes, headers, problem details, ETags, idempotency, CSV and image uploads, media serving, limits |
-| Frontend | 41 | Utilities, cart store, card helpers, Zod schemas, HTTP client and upload progress, theme store, responsive image component, ProductForm behaviour |
+| Backend unit | 216 | Domain rules (including the SQL payload rule), use cases with in-memory adapters, CSV parsing (including the full sample file), image processing (orientation, metadata, alpha, bombs, truncated and fake files), SSRF protections of the URL fetcher (private addresses, redirects, limits) with a mock transport, local and S3 storage (moto), payment simulation, retries, logging |
+| Backend integration | 32 | Real PostgreSQL via Testcontainers: repositories, optimistic locking, constraints, migrations against the models, search, concurrent checkout, imports, image metadata and credits, CLI seeding from a manifest served by a local HTTP server |
+| Backend API | 47 | HTTP behaviour end to end: status codes, headers, problem details, ETags, idempotency, CSV and image uploads, URL imports, media serving, limits |
+| Frontend | 45 | Utilities, cart store, card helpers, Zod schemas, HTTP client and upload progress, theme store, responsive image and photo credit components, ProductForm behaviour |
 
 Backend gates: Ruff (lint and format), `mypy --strict`, `import-linter` architecture contracts and a
 90% coverage threshold (currently 97%). Frontend gates: ESLint with type aware rules, Prettier,
@@ -639,7 +721,10 @@ seeds it as a smoke test.
 - The API and web containers run as non-root users with read-only file systems and
   `no-new-privileges`. The API and the database only listen on `127.0.0.1` on the host.
 - Parameterized SQL everywhere, escaped `LIKE` patterns and sanitized full-text queries.
-- Plain text policy for product data, plus React output escaping and a strict CSP on the web app.
+- Plain text policy for product data (no markup, no SQL injection payloads), plus React output
+  escaping and a strict CSP on the web app.
+- Server side URL imports are protected against SSRF: https only, public addresses only, every
+  redirect re-checked, timeouts, size limits and an optional host allow list.
 - Request body limit, upload type and size checks, CSV row limits.
 - Uploaded images are identified by their bytes, re-encoded from decoded pixels (so polyglot files
   and embedded payloads do not survive), limited in pixels against decompression bombs, and
@@ -667,7 +752,9 @@ Backend settings are environment variables with the `APP_` prefix
 | `APP_MEDIA_BACKEND` | `local` | `local` directory or `s3` compatible object storage |
 | `APP_MEDIA_ROOT` / `APP_MEDIA_BASE_URL` / `APP_MEDIA_SERVE` | `var/media` / `/media` / `false` | Local storage path, public URL prefix (a CDN in production), let the API serve files in development |
 | `APP_S3_BUCKET` / `APP_S3_ENDPOINT_URL` / `APP_S3_REGION` | none / none / `us-east-1` | S3, R2 or MinIO settings when the backend is `s3` |
-| `APP_IMAGE_MAX_BYTES` / `APP_IMAGE_MAX_PIXELS` / `APP_IMAGE_PROCESSING_CONCURRENCY` | `10485760` / `40000000` / `2` | Upload limits and parallel encoders |
+| `APP_IMAGE_MAX_BYTES` / `APP_IMAGE_MAX_PIXELS` / `APP_IMAGE_PROCESSING_CONCURRENCY` | `10485760` / `40000000` / `2` | Upload and download limits and parallel encoders |
+| `APP_IMAGE_FETCH_TIMEOUT_SECONDS` / `APP_IMAGE_FETCH_ALLOWED_HOSTS` | `15` / empty (any public host) | URL import timeout and a comma separated host allow list, subdomains included |
+| `APP_IMAGE_FETCH_ALLOW_HTTP` / `APP_IMAGE_FETCH_ALLOW_PRIVATE_NETWORKS` | `false` / `false` | Development only switches for plain http and local or private hosts |
 
 Compose reads `POSTGRES_PASSWORD` (required), `POSTGRES_USER`, `POSTGRES_DB`, `POSTGRES_PORT`,
 `API_PORT` and `WEB_PORT` from the root `.env` ([`.env.example`](.env.example)).
@@ -697,6 +784,8 @@ Compose reads `POSTGRES_PASSWORD` (required), `POSTGRES_USER`, `POSTGRES_DB`, `P
 | Image upload path | Multipart upload through the API | Presigned direct-to-S3 uploads: no upload traffic on the API, best for large or very frequent files, but needs storage CORS and an asynchronous finalize step. The next step at scale |
 | Image processing | Renditions generated once at upload | On the fly image service (imgproxy, Thumbor, Cloudinary, Imgix) behind a CDN: any size on demand, but another service or vendor to run and pay for |
 | Image storage | Object storage, metadata in a `JSONB` column | Images in PostgreSQL `BYTEA`: simple, but bloats the database and backups and cannot sit behind a CDN. A `product_images` table: needed for galleries, more than one optional image needs |
+| Sample photos | URL manifest, downloaded and processed by the seed job | Commit the binaries: works offline, but 8.6 MB of history that never shrinks. Git LFS: smaller clones, but needs LFS on every machine and in CI. Hotlink the remote URLs in `<img>`: zero storage, but no AVIF or sizes, a looser CSP, third party tracking and broken images when the source changes. An image proxy (imgproxy) in front of remote URLs: on demand sizes, but another service and the same availability risk |
+| Invalid product text | Reject markup and SQL payload shapes in the domain | Accept anything, since parameterized SQL is safe: correct for security, but stores junk. Escape or strip silently: changes data without telling the user. A WAF: protects the edge, not CSV imports or other writers |
 | Image formats | AVIF with WebP fallback | Adding JPEG: every current browser supports WebP, so it would only add storage |
 | Image placeholder | Inline 24 px WebP data URI | BlurHash or ThumbHash: smaller strings, but they need JavaScript to decode. A dominant color: cheaper, less pleasant |
 | Theming | CSS variable tokens and a class on `<html>` | `dark:` variants on every element: verbose and easy to miss. Media query only: no user override. CSS-in-JS theme provider: runtime cost |
@@ -714,6 +803,8 @@ Compose reads `POSTGRES_PASSWORD` (required), `POSTGRES_USER`, `POSTGRES_DB`, `P
   and JSON logs.
 - **Catalog features:** image galleries and editable alt text, discounts and promotions, multi
   currency and taxes.
+- **URL imports:** pin the resolved IP in the HTTP transport (or use an egress proxy) to close the
+  DNS rebinding window, and move large batches to a background queue.
 - **Orphaned media:** if the process dies between storing the files and updating the product, the
   files remain unreferenced. A periodic job comparing storage keys with the database would clean
   them up.
