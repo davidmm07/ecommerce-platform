@@ -1,0 +1,129 @@
+import { useMemo, useState } from 'react';
+
+import { cn } from '@/shared/lib/cn';
+import { Badge, Card, StatTile } from '@/shared/ui/display';
+
+import type { ImportReport, RowOutcome } from '../api';
+
+const OUTCOME_TONE: Record<RowOutcome, 'success' | 'info' | 'neutral' | 'warning' | 'danger'> = {
+  created: 'success',
+  updated: 'info',
+  unchanged: 'neutral',
+  skipped: 'warning',
+  failed: 'danger',
+};
+
+const FILTERS: Array<{ value: RowOutcome | 'issues' | 'all'; label: string }> = [
+  { value: 'issues', label: 'Needs attention' },
+  { value: 'all', label: 'All rows' },
+  { value: 'created', label: 'Created' },
+  { value: 'updated', label: 'Updated' },
+  { value: 'unchanged', label: 'Unchanged' },
+  { value: 'skipped', label: 'Skipped' },
+  { value: 'failed', label: 'Failed' },
+];
+
+export function ImportResults({ report }: { report: ImportReport }) {
+  const [filter, setFilter] = useState<RowOutcome | 'issues' | 'all'>('issues');
+  const rows = useMemo(
+    () =>
+      report.rows.filter((row) => {
+        if (filter === 'all') return true;
+        if (filter === 'issues') {
+          return row.outcome === 'failed' || row.outcome === 'skipped' || row.messages.length > 0;
+        }
+        return row.outcome === filter;
+      }),
+    [report.rows, filter],
+  );
+  const { summary } = report;
+
+  return (
+    <section className="space-y-4" aria-label="Import results">
+      {report.dry_run && (
+        <p className="rounded-lg bg-indigo-50 px-4 py-3 text-sm text-indigo-900 ring-1 ring-indigo-100">
+          Dry run: nothing was saved. Upload again without "Validate only" to apply these changes.
+        </p>
+      )}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <StatTile label="Rows" value={summary.total_rows} />
+        <StatTile label="Created" value={summary.created} tone="success" />
+        <StatTile label="Updated" value={summary.updated} tone="info" />
+        <StatTile label="Unchanged" value={summary.unchanged} />
+        <StatTile label="Skipped" value={summary.skipped} tone="warning" />
+        <StatTile label="Failed" value={summary.failed} tone="danger" />
+      </div>
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filter rows">
+        {FILTERS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="tab"
+            aria-selected={filter === option.value}
+            onClick={() => setFilter(option.value)}
+            className={cn(
+              'rounded-full px-3 py-1 text-sm font-medium ring-1 ring-inset',
+              filter === option.value
+                ? 'bg-slate-900 text-white ring-slate-900'
+                : 'bg-white text-slate-700 ring-slate-300 hover:bg-slate-50',
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <Card className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <tr>
+              <th scope="col" className="w-16 px-4 py-3">
+                Line
+              </th>
+              <th scope="col" className="w-32 px-4 py-3">
+                SKU
+              </th>
+              <th scope="col" className="w-32 px-4 py-3">
+                Outcome
+              </th>
+              <th scope="col" className="px-4 py-3">
+                Details
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                  No rows in this view.
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.line}>
+                  <td className="px-4 py-3 tabular-nums text-slate-500">{row.line}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{row.sku ?? '-'}</td>
+                  <td className="px-4 py-3">
+                    <Badge tone={OUTCOME_TONE[row.outcome]} className="capitalize">
+                      {row.outcome}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-3 text-slate-700">
+                    {row.messages.length > 0 ? (
+                      <ul className="list-inside list-disc space-y-0.5">
+                        {row.messages.map((message) => (
+                          <li key={message}>{message}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="text-slate-400">-</span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </Card>
+    </section>
+  );
+}

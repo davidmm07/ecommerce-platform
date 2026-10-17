@@ -1,0 +1,29 @@
+import type { Page } from '@/shared/api/http';
+import { getJson, request } from '@/shared/api/http';
+
+import type { Category, Product, ProductChanges, ProductInput, ProductQuery } from './types';
+
+export const catalogApi = {
+  categories: (signal?: AbortSignal) => getJson<Category[]>('/categories', { signal }),
+
+  search: (query: ProductQuery, signal?: AbortSignal) =>
+    getJson<Page<Product>>('/products', { query, signal }),
+
+  get: (id: string, signal?: AbortSignal) => getJson<Product>(`/products/${id}`, { signal }),
+
+  create: (input: ProductInput) => getJson<Product>('/products', { method: 'POST', body: input }),
+
+  update: (id: string, version: number, changes: ProductChanges) =>
+    getJson<Product>(`/products/${id}`, {
+      method: 'PATCH',
+      body: changes,
+      headers: { 'If-Match': `"${version}"` },
+    }),
+
+  archive: async (id: string, version: number) => {
+    await request<void>(`/products/${id}`, {
+      method: 'DELETE',
+      headers: { 'If-Match': `"${version}"` },
+    });
+  },
+};
