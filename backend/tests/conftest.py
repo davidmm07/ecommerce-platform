@@ -1,0 +1,74 @@
+import os
+from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
+
+import pytest
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import text
+from testcontainers.community.postgres import PostgresContainer
+
+from ecommerce.container import Container
+from ecommerce.infrastructure.config import Settings
+from tests.factories import FixedClock
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+SAMPLE_CSV = BACKEND_DIR.parent / "data" / "products-sample.csv"
+POSTGRES_IMAGE = "postgres:17-alpine"
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    for item in items:
+        if {"integration", "api"} & set(item.path.parts):
+            item.add_marker(pytest.mark.integration)
+
+
+@pytest.fixture(scope="session")
+def database_url() -> Iterator[str]:
+    configured = os.environ.get("TEST_DATABASE_URL")
+    if configured:
+        yield configured
+        return
+    with PostgresContainer(POSTGRES_IMAGE, driver="asyncpg") as postgres:
+        yield postgres.get_connection_url()
+
+
+@pytest.fixture(scope="session")
+def migrated_database(database_url: str) -> str:
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
+    config.attributes["configure_logger"] = False
+    command.downgrade(config, "base")
+    command.upgrade(config, "head")
+    return database_url
+
+
+@pytest.fixture(scope="session")
+def clock() -> FixedClock:
+    return FixedClock()
+
+
+@pytest.fixture(scope="session")
+async def container(migrated_database: str, clock: FixedClock) -> AsyncIterator[Container]:
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        database_url=migrated_database,
+        database_pool_size=20,
+        log_level="WARNING",
+        log_format="text",
+        payment_latency_ms=0,
+        import_max_bytes=64 * 1024,
+        import_max_rows=500,
+    )
+    app_container = Container(settings, clock=clock)
+    yield app_container
+    await app_container.aclose()
+
+
+@pytest.fixture
+async def clean_database(container: Container) -> Container:
+    async with container.engine.begin() as connection:
+        await connection.execute(text("TRUNCATE order_lines, orders, products"))
+    return container
