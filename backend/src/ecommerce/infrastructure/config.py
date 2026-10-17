@@ -1,7 +1,8 @@
 from decimal import Decimal
-from typing import Annotated, Literal
+from pathlib import Path
+from typing import Annotated, Literal, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -26,6 +27,16 @@ class Settings(BaseSettings):
     payment_max_attempts: int = Field(default=3, ge=1, le=5)
     import_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1024)
     import_max_rows: int = Field(default=5_000, ge=1)
+    media_backend: Literal["local", "s3"] = "local"
+    media_root: Path = Path("var/media")
+    media_base_url: str = "/media"
+    media_serve: bool = False
+    s3_bucket: str | None = None
+    s3_endpoint_url: str | None = None
+    s3_region: str = "us-east-1"
+    image_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
+    image_max_pixels: int = Field(default=40_000_000, ge=10_000)
+    image_processing_concurrency: int = Field(default=2, ge=1, le=16)
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -34,6 +45,12 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 
+    @model_validator(mode="after")
+    def _require_bucket_for_s3(self) -> Self:
+        if self.media_backend == "s3" and not self.s3_bucket:
+            raise ValueError("APP_S3_BUCKET is required when APP_MEDIA_BACKEND is s3")
+        return self
+
     @property
     def max_request_bytes(self) -> int:
-        return self.import_max_bytes + 64 * 1024
+        return max(self.import_max_bytes, self.image_max_bytes) + 64 * 1024
