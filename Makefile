@@ -61,7 +61,7 @@ dev-db: .env
 
 dev-api: .env
 	cd backend && APP_DATABASE_URL="$(LOCAL_DATABASE_URL)" APP_LOG_FORMAT=text uv run alembic upgrade head
-	cd backend && APP_DATABASE_URL="$(LOCAL_DATABASE_URL)" APP_LOG_FORMAT=text uv run uvicorn ecommerce.presentation.api.app:create_app --factory --reload
+	cd backend && APP_DATABASE_URL="$(LOCAL_DATABASE_URL)" APP_LOG_FORMAT=text APP_MEDIA_SERVE=true uv run uvicorn ecommerce.presentation.api.app:create_app --factory --reload
 
 dev-web:
 	cd frontend && npm run dev

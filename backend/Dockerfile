@@ -19,8 +19,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM python:${PYTHON_VERSION}-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/opt/venv/bin:${PATH}"
-RUN groupadd --system app && useradd --system --gid app --uid 10001 --no-create-home app
+    PATH="/opt/venv/bin:${PATH}" \
+    APP_MEDIA_ROOT=/var/lib/ecommerce/media
+RUN groupadd --system app && useradd --system --gid app --uid 10001 --no-create-home app \
+    && mkdir -p /var/lib/ecommerce/media \
+    && chown app:app /var/lib/ecommerce/media
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY alembic.ini ./

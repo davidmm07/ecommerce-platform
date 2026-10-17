@@ -31,6 +31,8 @@ services:
       APP_CORS_ORIGINS: http://localhost:${WEB_PORT:-8080},http://localhost:5173
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
+    volumes:
+      - media:/var/lib/ecommerce/media
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -56,6 +58,8 @@ services:
     image: ecommerce-platform-web:local
     ports:
       - "${WEB_PORT:-8080}:8080"
+    volumes:
+      - media:/usr/share/nginx/media:ro
     depends_on:
       api:
         condition: service_healthy
@@ -70,13 +74,18 @@ services:
     image: ecommerce-platform-api:local
     pull_policy: never
     profiles: ["seed"]
-    command: ["ecommerce", "import-products", "/data/products-sample.csv"]
+    command:
+      - sh
+      - -c
+      - ecommerce import-products /data/products-sample.csv && ecommerce import-images /data/images
     environment: *api-environment
     volumes:
       - ./data:/data:ro
+      - media:/var/lib/ecommerce/media
     depends_on:
       migrate:
         condition: service_completed_successfully
 
 volumes:
   db-data:
+  media:
