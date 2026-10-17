@@ -3,8 +3,8 @@ from datetime import timedelta
 import pytest
 
 from ecommerce.domain.catalog.errors import ProductUnavailable
-from ecommerce.domain.catalog.image import ProductImage
-from ecommerce.domain.errors import InvalidValue
+from ecommerce.domain.catalog.image import ImageCredit, ProductImage, parse_web_url
+from ecommerce.domain.errors import DomainValidationError, InvalidValue
 from tests.factories import NOW, make_product
 
 
@@ -66,3 +66,42 @@ def test_archived_products_cannot_change_images() -> None:
     product.archive(NOW)
     with pytest.raises(ProductUnavailable):
         product.replace_image(image(), NOW)
+
+
+def test_credits_are_validated_and_normalized() -> None:
+    credit = ImageCredit.build(
+        author="  Jane   Doe ",
+        license="CC BY 2.0",
+        source_url="https://www.flickr.com/photos/example/1",
+    )
+    assert credit.author == "Jane Doe"
+    assert credit.license_url is None
+    with pytest.raises(DomainValidationError) as caught:
+        ImageCredit.build(
+            author="<b>x</b>",
+            license="",
+            source_url="javascript:alert(1)",
+            license_url="https://user:secret@example.com",
+        )
+    assert {error.field for error in caught.value.errors} == {
+        "author",
+        "license",
+        "source_url",
+        "license_url",
+    }
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["", "ftp://example.com/a.jpg", "https:///nohost", "https://exa mple.com", "/relative.jpg"],
+)
+def test_web_urls_must_be_absolute_http(url: str) -> None:
+    with pytest.raises(InvalidValue):
+        parse_web_url(url)
+
+
+def test_images_remember_where_they_came_from() -> None:
+    product_image = image(origin_url="https://img.example.com/a.jpg")
+    assert product_image.origin_url == "https://img.example.com/a.jpg"
+    with pytest.raises(InvalidValue):
+        image(origin_url="file:///etc/passwd")
