@@ -37,10 +37,14 @@ class Settings(BaseSettings):
     image_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
     image_max_pixels: int = Field(default=40_000_000, ge=10_000)
     image_processing_concurrency: int = Field(default=2, ge=1, le=16)
+    image_fetch_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
+    image_fetch_allowed_hosts: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    image_fetch_allow_http: bool = False
+    image_fetch_allow_private_networks: bool = False
 
-    @field_validator("cors_origins", mode="before")
+    @field_validator("cors_origins", "image_fetch_allowed_hosts", mode="before")
     @classmethod
-    def _split_origins(cls, value: object) -> object:
+    def _split_csv(cls, value: object) -> object:
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value

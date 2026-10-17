@@ -122,3 +122,11 @@ class UnsupportedImageType(ApplicationError):
 
 class ImageTooLarge(ApplicationError):
     code = "image_too_large"
+
+
+class InvalidImageSource(ApplicationError):
+    code = "invalid_image_source"
+
+
+class ImageSourceUnavailable(ApplicationError):
+    code = "image_source_unavailable"
