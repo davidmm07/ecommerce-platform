@@ -1,4 +1,8 @@
 import json
+import threading
+from collections.abc import Iterator
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -33,31 +37,80 @@ def test_reports_unusable_files(
     assert "import failed" in capsys.readouterr().err
 
 
-def test_import_images_attaches_files_named_after_skus(
-    cli_env: None, tmp_path: Path, media_root: Path, capsys: pytest.CaptureFixture[str]
+@pytest.fixture
+def image_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+    root = tmp_path_factory.mktemp("remote-images")
+    (root / "shoes.jpg").write_bytes(jpeg_bytes(900, 600))
+    (root / "speaker.png").write_bytes(png_bytes())
+    (root / "notes.txt").write_text("not an image")
+    handler = partial(SimpleHTTPRequestHandler, directory=str(root))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+    server.server_close()
+
+
+def write_manifest(path: Path, rows: list[str]) -> Path:
+    header = "sku,image_url,author,license,license_url,source_url"
+    path.write_text("\n".join([header, *rows]) + "\n")
+    return path
+
+
+def test_import_images_downloads_sources_from_a_manifest(
+    cli_env: None,
+    image_server: str,
+    tmp_path: Path,
+    media_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.setenv("APP_IMAGE_FETCH_ALLOW_HTTP", "true")
+    monkeypatch.setenv("APP_IMAGE_FETCH_ALLOW_PRIVATE_NETWORKS", "true")
     assert main(["import-products", str(SAMPLE_CSV)]) == 0
     capsys.readouterr()
-    (tmp_path / "RS-001.jpg").write_bytes(jpeg_bytes(900, 600))
-    (tmp_path / "bs-021.png").write_bytes(png_bytes())
-    (tmp_path / "NOPE-999.jpg").write_bytes(jpeg_bytes(400, 400))
-    (tmp_path / "notes.txt").write_text("ignored")
+    manifest = write_manifest(
+        tmp_path / "images.csv",
+        [
+            f"RS-001,{image_server}/shoes.jpg,Jane Doe,CC BY 2.0,,https://example.com/shoes",
+            f"bs-021,{image_server}/speaker.png,,,,",
+            f"NOPE-999,{image_server}/shoes.jpg,,,,",
+            f"TM-029,{image_server}/notes.txt,,,,",
+        ],
+    )
 
-    assert main(["import-images", str(tmp_path)]) == 0
+    assert main(["import-images", str(manifest)]) == 0
     first = json.loads(capsys.readouterr().out)
-    assert main(["import-images", str(tmp_path)]) == 0
+    assert main(["import-images", str(manifest), "--strict"]) == 1
     second = json.loads(capsys.readouterr().out)
 
-    assert (first["total_files"], first["attached"], first["not_found"]) == (3, 2, 1)
+    assert (first["total"], first["attached"], first["not_found"], first["failed"]) == (
+        4,
+        2,
+        1,
+        1,
+    )
     assert (second["attached"], second["unchanged"]) == (0, 2)
     assert any((media_root / "products").rglob("*-640.avif"))
 
 
-def test_import_images_fails_on_invalid_files(
-    cli_env: None, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_import_images_blocks_private_addresses_by_default(
+    cli_env: None, image_server: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert main(["import-products", str(SAMPLE_CSV)]) == 0
-    (tmp_path / "RS-001.jpg").write_bytes(b"not an image")
-    assert main(["import-images", str(tmp_path)]) == 1
-    assert main(["import-images", str(tmp_path / "missing")]) == 1
+    capsys.readouterr()
+    manifest = write_manifest(tmp_path / "images.csv", [f"RS-001,{image_server}/shoes.jpg,,,,"])
+    assert main(["import-images", str(manifest)]) == 0
+    [issue] = json.loads(capsys.readouterr().out)["issues"]
+    assert issue["message"] == "The image URL must use https"
+
+
+def test_import_images_rejects_unusable_manifests(
+    cli_env: None, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    broken = tmp_path / "broken.csv"
+    broken.write_text("sku,url\nRS-001,https://example.com/a.jpg\n")
+    assert main(["import-images", str(broken)]) == 1
+    assert main(["import-images", str(tmp_path / "missing.csv")]) == 1
     assert "import failed" in capsys.readouterr().err

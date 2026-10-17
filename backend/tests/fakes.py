@@ -175,3 +175,16 @@ class FakeImageProcessor:
                 for fmt in ("avif", "webp")
             ),
         )
+
+
+class FakeImageFetcher:
+    def __init__(self, responses: dict[str, bytes | Exception] | None = None) -> None:
+        self.responses = responses or {}
+        self.requested: list[str] = []
+
+    async def fetch(self, url: str) -> bytes:
+        self.requested.append(url)
+        outcome = self.responses.get(url, b"\xff\xd8 default image bytes")
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome

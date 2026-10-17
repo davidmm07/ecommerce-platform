@@ -8,9 +8,12 @@ from alembic.config import Config
 from sqlalchemy import text
 from testcontainers.community.postgres import PostgresContainer
 
+from ecommerce.application.errors import ImageSourceUnavailable
 from ecommerce.container import Container
 from ecommerce.infrastructure.config import Settings
 from tests.factories import FixedClock
+from tests.fakes import FakeImageFetcher
+from tests.images import jpeg_bytes
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 SAMPLE_CSV = BACKEND_DIR.parent / "data" / "products-sample.csv"
@@ -55,8 +58,20 @@ def media_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="session")
+def image_fetcher() -> FakeImageFetcher:
+    return FakeImageFetcher(
+        {
+            "https://images.example.com/lamp.jpg": jpeg_bytes(900, 600),
+            "https://images.example.com/missing.jpg": ImageSourceUnavailable(
+                "The image URL answered 404"
+            ),
+        }
+    )
+
+
+@pytest.fixture(scope="session")
 async def container(
-    migrated_database: str, clock: FixedClock, media_root: Path
+    migrated_database: str, clock: FixedClock, media_root: Path, image_fetcher: FakeImageFetcher
 ) -> AsyncIterator[Container]:
     settings = Settings(
         _env_file=None,
@@ -72,7 +87,7 @@ async def container(
         media_serve=True,
         image_max_bytes=2 * 1024 * 1024,
     )
-    app_container = Container(settings, clock=clock)
+    app_container = Container(settings, clock=clock, image_fetcher=image_fetcher)
     yield app_container
     await app_container.aclose()
 

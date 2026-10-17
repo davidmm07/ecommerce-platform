@@ -8,13 +8,18 @@ from uuid import UUID
 
 from ecommerce.application.catalog.use_cases import load_for_change
 from ecommerce.application.errors import ApplicationError, ImageTooLarge, InvalidImage
-from ecommerce.application.ports.media import ImageProcessor, ObjectStorage, ProcessedImage
+from ecommerce.application.ports.media import (
+    ImageProcessor,
+    ObjectStorage,
+    ProcessedImage,
+    RemoteImageFetcher,
+)
 from ecommerce.application.ports.system import Clock
 from ecommerce.application.ports.unit_of_work import UnitOfWorkFactory
-from ecommerce.domain.catalog.image import ProductImage
+from ecommerce.domain.catalog.image import ImageCredit, ProductImage, parse_web_url
 from ecommerce.domain.catalog.product import Product
 from ecommerce.domain.catalog.sku import Sku
-from ecommerce.domain.errors import DomainError
+from ecommerce.domain.errors import DomainError, FieldErrors
 
 HASH_LENGTH = 20
 
@@ -29,6 +34,24 @@ def content_hash(content: bytes) -> str:
 class ReplaceProductImageCommand:
     product_id: UUID
     content: bytes = field(repr=False)
+    expected_version: int | None = None
+    origin_url: str | None = None
+    credit: ImageCredit | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ImageCreditInput:
+    author: str
+    license: str
+    source_url: str
+    license_url: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ImportProductImageFromUrlCommand:
+    product_id: UUID
+    url: str
+    credit: ImageCreditInput | None = None
     expected_version: int | None = None
 
 
@@ -59,7 +82,7 @@ class ReplaceProductImage:
         async with self._uow_factory() as uow:
             current = await load_for_change(uow, command.product_id, command.expected_version)
         processed = await self._processor.process(command.content)
-        image = _image_from(command.product_id, command.content, processed)
+        image = _image_from(command, processed)
         reused = current.image is not None and current.image.key == image.key
         await _store(self._storage, image, processed)
         try:
@@ -103,6 +126,30 @@ class RemoveProductImage:
         return product
 
 
+class ImportProductImageFromUrl:
+    def __init__(self, *, fetcher: RemoteImageFetcher, replace_image: ReplaceProductImage) -> None:
+        self._fetcher = fetcher
+        self._replace_image = replace_image
+
+    async def execute(self, command: ImportProductImageFromUrlCommand) -> Product:
+        errors = FieldErrors()
+        with errors.collect("url"):
+            url = parse_web_url(command.url)
+        with errors.collect("credit"):
+            credit = _credit_from(command.credit)
+        errors.raise_if_any()
+        content = await self._fetcher.fetch(url)
+        return await self._replace_image.execute(
+            ReplaceProductImageCommand(
+                command.product_id,
+                content,
+                expected_version=command.expected_version,
+                origin_url=url,
+                credit=credit,
+            )
+        )
+
+
 class ImageImportOutcome(StrEnum):
     ATTACHED = "attached"
     UNCHANGED = "unchanged"
@@ -111,9 +158,10 @@ class ImageImportOutcome(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class ImageFile:
+class ImageSource:
     sku: str
-    content: bytes = field(repr=False)
+    url: str
+    credit: ImageCreditInput | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,49 +176,62 @@ class ImportProductImages:
         self,
         *,
         uow_factory: UnitOfWorkFactory,
-        replace_image: ReplaceProductImage,
+        import_from_url: ImportProductImageFromUrl,
         concurrency: int = 4,
     ) -> None:
         self._uow_factory = uow_factory
-        self._replace_image = replace_image
+        self._import_from_url = import_from_url
         self._concurrency = concurrency
 
-    async def execute(self, files: Sequence[ImageFile]) -> list[ImageImportResult]:
+    async def execute(self, sources: Sequence[ImageSource]) -> list[ImageImportResult]:
         semaphore = asyncio.Semaphore(self._concurrency)
 
-        async def run(file: ImageFile) -> ImageImportResult:
+        async def run(source: ImageSource) -> ImageImportResult:
             async with semaphore:
-                return await self._import_one(file)
+                return await self._import_one(source)
 
-        return list(await asyncio.gather(*(run(file) for file in files)))
+        return list(await asyncio.gather(*(run(source) for source in sources)))
 
-    async def _import_one(self, file: ImageFile) -> ImageImportResult:
+    async def _import_one(self, source: ImageSource) -> ImageImportResult:
         try:
-            sku = Sku.parse(file.sku)
+            sku = Sku.parse(source.sku)
             async with self._uow_factory() as uow:
                 product = await uow.products.get_by_sku(sku)
             if product is None:
                 return ImageImportResult(
-                    file.sku, ImageImportOutcome.NOT_FOUND, "no active product"
+                    source.sku, ImageImportOutcome.NOT_FOUND, "no active product"
                 )
-            if product.image is not None and product.image.content_hash == content_hash(
-                file.content
-            ):
+            if product.image is not None and product.image.origin_url == source.url.strip():
                 return ImageImportResult(sku.value, ImageImportOutcome.UNCHANGED)
-            await self._replace_image.execute(ReplaceProductImageCommand(product.id, file.content))
+            await self._import_from_url.execute(
+                ImportProductImageFromUrlCommand(product.id, source.url, source.credit)
+            )
         except (ApplicationError, DomainError) as exc:
-            return ImageImportResult(file.sku, ImageImportOutcome.FAILED, exc.message)
+            return ImageImportResult(source.sku, ImageImportOutcome.FAILED, exc.message)
         return ImageImportResult(sku.value, ImageImportOutcome.ATTACHED)
 
 
-def _image_from(product_id: UUID, content: bytes, processed: ProcessedImage) -> ProductImage:
+def _credit_from(raw: ImageCreditInput | None) -> ImageCredit | None:
+    if raw is None:
+        return None
+    return ImageCredit.build(
+        author=raw.author,
+        license=raw.license,
+        source_url=raw.source_url,
+        license_url=raw.license_url,
+    )
+
+
+def _image_from(command: ReplaceProductImageCommand, processed: ProcessedImage) -> ProductImage:
     return ProductImage(
-        key=f"products/{product_id}/{content_hash(content)}",
+        key=f"products/{command.product_id}/{content_hash(command.content)}",
         width=processed.width,
         height=processed.height,
         widths=processed.widths,
         formats=processed.formats,
         placeholder=processed.placeholder,
+        origin_url=command.origin_url,
+        credit=command.credit,
     )
 
 

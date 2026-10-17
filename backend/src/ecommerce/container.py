@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from ecommerce.application.catalog.images import (
+    ImportProductImageFromUrl,
     ImportProductImages,
     RemoveProductImage,
     ReplaceProductImage,
@@ -16,7 +17,7 @@ from ecommerce.application.imports.use_case import ImportProducts
 from ecommerce.application.ordering.cart import QuoteCart
 from ecommerce.application.ordering.place_order import PlaceOrder
 from ecommerce.application.ordering.queries import GetOrder, ListOrders
-from ecommerce.application.ports.media import ImageProcessor, ObjectStorage
+from ecommerce.application.ports.media import ImageProcessor, ObjectStorage, RemoteImageFetcher
 from ecommerce.application.ports.payments import PaymentGateway
 from ecommerce.application.ports.system import Clock
 from ecommerce.application.ports.unit_of_work import UnitOfWork
@@ -30,6 +31,7 @@ from ecommerce.infrastructure.clock import SystemClock
 from ecommerce.infrastructure.config import Settings
 from ecommerce.infrastructure.files.csv_reader import CsvProductTableReader
 from ecommerce.infrastructure.images.pillow_processor import PillowImageProcessor
+from ecommerce.infrastructure.images.remote_fetcher import HttpImageFetcher
 from ecommerce.infrastructure.payments.resilient import ResilientPaymentGateway
 from ecommerce.infrastructure.payments.simulated import SimulatedPaymentGateway
 from ecommerce.infrastructure.persistence.database import (
@@ -55,6 +57,7 @@ class Container:
         payment_gateway: PaymentGateway | None = None,
         storage: ObjectStorage | None = None,
         image_processor: ImageProcessor | None = None,
+        image_fetcher: RemoteImageFetcher | None = None,
     ) -> None:
         self.settings = settings
         self.engine = create_engine(
@@ -70,6 +73,13 @@ class Container:
         self.image_processor = image_processor or PillowImageProcessor(
             max_pixels=settings.image_max_pixels,
             max_concurrency=settings.image_processing_concurrency,
+        )
+        self.image_fetcher = image_fetcher or HttpImageFetcher(
+            max_bytes=settings.image_max_bytes,
+            timeout_seconds=settings.image_fetch_timeout_seconds,
+            allowed_hosts=settings.image_fetch_allowed_hosts,
+            allow_http=settings.image_fetch_allow_http,
+            allow_private_networks=settings.image_fetch_allow_private_networks,
         )
 
         uow_factory = self.unit_of_work
@@ -97,8 +107,11 @@ class Container:
         self.remove_product_image = RemoveProductImage(
             uow_factory=uow_factory, storage=self.storage, clock=self.clock
         )
+        self.import_product_image_from_url = ImportProductImageFromUrl(
+            fetcher=self.image_fetcher, replace_image=self.replace_product_image
+        )
         self.import_product_images = ImportProductImages(
-            uow_factory=uow_factory, replace_image=self.replace_product_image
+            uow_factory=uow_factory, import_from_url=self.import_product_image_from_url
         )
         self.quote_cart = QuoteCart(uow_factory=uow_factory, shipping_policy=self.shipping_policy)
         self.place_order = PlaceOrder(

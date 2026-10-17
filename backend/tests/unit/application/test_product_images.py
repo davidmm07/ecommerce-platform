@@ -1,8 +1,11 @@
 import pytest
 
 from ecommerce.application.catalog.images import (
-    ImageFile,
+    ImageCreditInput,
     ImageImportOutcome,
+    ImageSource,
+    ImportProductImageFromUrl,
+    ImportProductImageFromUrlCommand,
     ImportProductImages,
     RemoveProductImage,
     RemoveProductImageCommand,
@@ -11,14 +14,17 @@ from ecommerce.application.catalog.images import (
     content_hash,
 )
 from ecommerce.application.errors import (
+    ImageSourceUnavailable,
     ImageTooLarge,
     InvalidImage,
     UnsupportedImageType,
     VersionMismatch,
 )
 from ecommerce.application.ports.media import ProcessedImage
+from ecommerce.domain.errors import DomainValidationError
 from tests.factories import FixedClock, make_product
 from tests.fakes import (
+    FakeImageFetcher,
     FakeImageProcessor,
     InMemoryDatabase,
     InMemoryObjectStorage,
@@ -184,42 +190,108 @@ async def test_storage_failures_on_cleanup_do_not_fail_the_request(
     assert updated.image is not None
 
 
-async def test_import_reports_each_file(
+def url_importer(
+    database: InMemoryDatabase,
+    storage: InMemoryObjectStorage,
+    fetcher: FakeImageFetcher,
+    processor: FakeImageProcessor | None = None,
+) -> ImportProductImageFromUrl:
+    return ImportProductImageFromUrl(
+        fetcher=fetcher, replace_image=replace_use_case(database, storage, processor)
+    )
+
+
+CREDIT = ImageCreditInput(
+    author="Jane Doe",
+    license="CC BY 2.0",
+    source_url="https://www.flickr.com/photos/example/1",
+    license_url="https://creativecommons.org/licenses/by/2.0/",
+)
+
+
+async def test_import_from_url_stores_origin_and_credit(
     database: InMemoryDatabase, storage: InMemoryObjectStorage
 ) -> None:
-    database.seed(make_product("RS-001"), make_product("BS-021"))
-    processor = FakeImageProcessor()
+    product = make_product()
+    database.seed(product)
+    fetcher = FakeImageFetcher()
+
+    updated = await url_importer(database, storage, fetcher).execute(
+        ImportProductImageFromUrlCommand(product.id, " https://img.example.com/a.jpg ", CREDIT)
+    )
+
+    assert fetcher.requested == ["https://img.example.com/a.jpg"]
+    assert updated.image is not None
+    assert updated.image.origin_url == "https://img.example.com/a.jpg"
+    assert updated.image.credit is not None
+    assert updated.image.credit.author == "Jane Doe"
+
+
+async def test_import_from_url_validates_before_downloading(
+    database: InMemoryDatabase, storage: InMemoryObjectStorage
+) -> None:
+    product = make_product()
+    database.seed(product)
+    fetcher = FakeImageFetcher()
+    bad_credit = ImageCreditInput(author="", license="CC BY", source_url="javascript:alert(1)")
+
+    with pytest.raises(DomainValidationError) as caught:
+        await url_importer(database, storage, fetcher).execute(
+            ImportProductImageFromUrlCommand(product.id, "ftp://img.example.com/a.jpg", bad_credit)
+        )
+
+    assert {error.field for error in caught.value.errors} == {
+        "url",
+        "credit.author",
+        "credit.source_url",
+    }
+    assert fetcher.requested == []
+
+
+async def test_bulk_import_reports_each_source(
+    database: InMemoryDatabase, storage: InMemoryObjectStorage
+) -> None:
+    database.seed(make_product("RS-001"), make_product("BS-021"), make_product("TM-029"))
+    fetcher = FakeImageFetcher(
+        {"https://img.example.com/down.jpg": ImageSourceUnavailable("answered 404")}
+    )
     importer = ImportProductImages(
         uow_factory=lambda: InMemoryUnitOfWork(database),
-        replace_image=replace_use_case(database, storage, processor),
+        import_from_url=url_importer(database, storage, fetcher),
     )
-    files = [
-        ImageFile("rs-001", CONTENT),
-        ImageFile("NOPE-404", CONTENT),
-        ImageFile("bad sku!", CONTENT),
+    sources = [
+        ImageSource("rs-001", "https://img.example.com/shoes.jpg", CREDIT),
+        ImageSource("NOPE-404", "https://img.example.com/x.jpg"),
+        ImageSource("bad sku!", "https://img.example.com/y.jpg"),
+        ImageSource("BS-021", "https://img.example.com/down.jpg"),
     ]
 
-    first = await importer.execute(files)
-    second = await importer.execute(files[:1])
+    first = await importer.execute(sources)
+    second = await importer.execute(sources[:1])
 
     assert [(r.sku, r.outcome) for r in first] == [
         ("RS-001", ImageImportOutcome.ATTACHED),
         ("NOPE-404", ImageImportOutcome.NOT_FOUND),
         ("bad sku!", ImageImportOutcome.FAILED),
+        ("BS-021", ImageImportOutcome.FAILED),
     ]
+    assert first[3].message == "answered 404"
     assert second[0].outcome is ImageImportOutcome.UNCHANGED
-    assert processor.calls == 1
+    assert fetcher.requested.count("https://img.example.com/shoes.jpg") == 1
 
 
-async def test_import_reports_processing_errors(
+async def test_bulk_import_reports_processing_errors(
     database: InMemoryDatabase, storage: InMemoryObjectStorage
 ) -> None:
     database.seed(make_product("RS-001"))
     importer = ImportProductImages(
         uow_factory=lambda: InMemoryUnitOfWork(database),
-        replace_image=replace_use_case(
-            database, storage, FakeImageProcessor(error=UnsupportedImageType("not an image"))
+        import_from_url=url_importer(
+            database,
+            storage,
+            FakeImageFetcher(),
+            FakeImageProcessor(error=UnsupportedImageType("not an image")),
         ),
     )
-    [result] = await importer.execute([ImageFile("RS-001", CONTENT)])
+    [result] = await importer.execute([ImageSource("RS-001", "https://img.example.com/a.jpg")])
     assert (result.outcome, result.message) == (ImageImportOutcome.FAILED, "not an image")
