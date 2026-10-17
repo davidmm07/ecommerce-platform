@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { changedFields, productFormSchema, toFormValues, toProductInput } from './product-form';
+import {
+  changedFields,
+  looksLikeSqlPayload,
+  productFormSchema,
+  toFormValues,
+  toProductInput,
+} from './product-form';
 import { parseAdminProductsSearch, parseShopSearch } from './search-params';
 import { fromSorting, toSorting } from './table-sorting';
 import type { Product } from './types';
@@ -77,5 +83,27 @@ describe('product form mapping', () => {
     expect(result.success).toBe(false);
     const fields = new Set(result.error?.issues.map((issue) => issue.path[0]));
     expect(fields).toEqual(new Set(['sku', 'name', 'category', 'price', 'stock', 'weight_kg']));
+  });
+});
+
+describe('sql payload rule', () => {
+  it('flags injection payloads and keeps ordinary product text', () => {
+    for (const payload of [
+      "Robert'); DROP TABLE products;--",
+      "x' OR '1'='1",
+      '1 UNION SELECT password FROM users',
+      'Lamp /* hidden */',
+    ]) {
+      expect(looksLikeSqlPayload(payload)).toBe(true);
+    }
+    for (const text of [
+      "Robert's Running Shoes",
+      'Rock & Roll; Vol. 2',
+      'Drop Earrings',
+      'Select from 6 colors',
+      'Update your set of tools',
+    ]) {
+      expect(looksLikeSqlPayload(text)).toBe(false);
+    }
   });
 });

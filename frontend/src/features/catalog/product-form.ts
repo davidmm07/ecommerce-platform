@@ -7,12 +7,29 @@ const SKU_PATTERN = /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/;
 const PRICE_PATTERN = /^\d{1,10}(?:\.\d{1,2})?$/;
 const WEIGHT_PATTERN = /^\d{1,4}(?:\.\d{1,3})?$/;
 const MARKUP_PATTERN = /<\s*\/?\s*[A-Za-z!][^>]*>/;
+const SQL_PAYLOAD_PATTERNS = [
+  /\b(?:drop|truncate|alter)\s+(?:table|database|schema|view|index)\b/i,
+  /\bdelete\s+from\b/i,
+  /\binsert\s+into\b/i,
+  /\bunion\s+(?:all\s+)?select\b/i,
+  /\bupdate\s+\w+\s+set\s+\w+\s*=/i,
+  /\b(?:exec|execute)\s*\(/i,
+  /['"]\s*\)*\s*(?:or|and)\s+['"]?\w+['"]?\s*=\s*['"]?\w+/i,
+  /;\s*--|['")]\s*--/,
+  /\/\*|\*\//,
+  /\b(?:xp_cmdshell|pg_sleep|waitfor\s+delay)\b/i,
+];
+
+export function looksLikeSqlPayload(value: string): boolean {
+  return SQL_PAYLOAD_PATTERNS.some((pattern) => pattern.test(value));
+}
 
 const plainText = (max: number) =>
   z
     .string()
     .max(max, `Use at most ${max} characters`)
-    .refine((value) => !MARKUP_PATTERN.test(value), 'HTML markup is not allowed');
+    .refine((value) => !MARKUP_PATTERN.test(value), 'HTML markup is not allowed')
+    .refine((value) => !looksLikeSqlPayload(value), 'This looks like an SQL injection payload');
 
 export const productFormSchema = z.object({
   sku: z
