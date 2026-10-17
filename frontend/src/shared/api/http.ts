@@ -55,7 +55,7 @@ export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? '/api/v
 type QueryValue = string | number | boolean | null | undefined;
 
 export type RequestOptions = {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   query?: Record<string, QueryValue>;
   headers?: Record<string, string>;

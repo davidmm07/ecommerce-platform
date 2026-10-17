@@ -31,12 +31,20 @@ export type ImageSource = {
   srcset: string;
 };
 
+export type ImageCredit = {
+  author: string;
+  license: string;
+  source_url: string;
+  license_url: string | null;
+};
+
 export type ProductImage = {
   url: string;
   width: number;
   height: number;
   placeholder: string;
   sources: ImageSource[];
+  credit: ImageCredit | null;
 };
 
 export type Product = {

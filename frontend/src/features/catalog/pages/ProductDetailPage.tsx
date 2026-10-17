@@ -8,6 +8,7 @@ import { buttonClasses } from '@/shared/ui/styles';
 import { Badge, Card } from '@/shared/ui/display';
 import { ResponsiveImage } from '@/shared/ui/ResponsiveImage';
 
+import { PhotoCredit } from '../components/PhotoCredit';
 import { StockBadge } from '../components/StockBadge';
 import { productQuery } from '../queries';
 
@@ -24,14 +25,21 @@ export function ProductDetailPage() {
         Back to shop
       </Link>
       <Card className="grid overflow-hidden md:grid-cols-2">
-        <ResponsiveImage
-          image={product.image}
-          alt={product.name}
-          sizes="(min-width: 1280px) 616px, (min-width: 768px) 50vw, 100vw"
-          priority
-          fit="contain"
-          className="aspect-[4/3] w-full md:aspect-auto md:min-h-96"
-        />
+        <figure className="flex flex-col">
+          <ResponsiveImage
+            image={product.image}
+            alt={product.name}
+            sizes="(min-width: 1280px) 616px, (min-width: 768px) 50vw, 100vw"
+            priority
+            fit="contain"
+            className="aspect-[4/3] w-full md:aspect-auto md:min-h-96 md:flex-1"
+          />
+          {product.image?.credit && (
+            <figcaption className="border-t border-line-soft px-4 py-2">
+              <PhotoCredit credit={product.image.credit} />
+            </figcaption>
+          )}
+        </figure>
         <div className="space-y-5 p-6 md:p-8">
           <div className="flex flex-wrap items-center gap-2">
             <Badge>{product.category_label}</Badge>

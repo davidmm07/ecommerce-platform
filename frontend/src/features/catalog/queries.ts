@@ -66,6 +66,23 @@ export function useUploadProductImage(onProgress?: (fraction: number) => void) {
   });
 }
 
+export function useImportProductImageFromUrl() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      product,
+      body,
+    }: {
+      product: Product;
+      body: Parameters<typeof catalogApi.importImageFromUrl>[2];
+    }) => catalogApi.importImageFromUrl(product.id, product.version, body),
+    onSuccess: (product) => {
+      queryClient.setQueryData(productKeys.detail(product.id), product);
+      return queryClient.invalidateQueries({ queryKey: productKeys.lists() });
+    },
+  });
+}
+
 export function useRemoveProductImage() {
   const queryClient = useQueryClient();
   return useMutation({

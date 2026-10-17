@@ -1,4 +1,4 @@
-import { ImagePlus, Trash2, UploadCloud } from 'lucide-react';
+import { ImagePlus, Link2, Trash2, UploadCloud } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -12,10 +12,16 @@ import {
 import { Button } from '@/shared/ui/Button';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { Card, ErrorState } from '@/shared/ui/display';
+import { TextField } from '@/shared/ui/fields';
 import { ResponsiveImage } from '@/shared/ui/ResponsiveImage';
 
-import { useRemoveProductImage, useUploadProductImage } from '../queries';
+import {
+  useImportProductImageFromUrl,
+  useRemoveProductImage,
+  useUploadProductImage,
+} from '../queries';
 import type { Product } from '../types';
+import { PhotoCredit } from './PhotoCredit';
 
 export function ProductImageManager({ product }: { product: Product }) {
   const inputId = useId();
@@ -25,8 +31,39 @@ export function ProductImageManager({ product }: { product: Product }) {
   const [dragging, setDragging] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const uploadImage = useUploadProductImage(setProgress);
+  const importImage = useImportProductImageFromUrl();
   const removeImage = useRemoveProductImage();
-  const busy = uploadImage.isPending || removeImage.isPending;
+  const busy = uploadImage.isPending || importImage.isPending || removeImage.isPending;
+  const [remote, setRemote] = useState({ url: '', author: '', license: '', source: '' });
+
+  const importFromUrl = async () => {
+    const url = remote.url.trim();
+    if (!/^https:\/\//i.test(url)) {
+      setError('Enter an https:// image URL.');
+      return;
+    }
+    const author = remote.author.trim();
+    if (author && (!remote.license.trim() || !remote.source.trim())) {
+      setError('A credit needs the author, the license and the source page.');
+      return;
+    }
+    setError(null);
+    try {
+      await importImage.mutateAsync({
+        product,
+        body: {
+          url,
+          credit: author
+            ? { author, license: remote.license.trim(), source_url: remote.source.trim() }
+            : null,
+        },
+      });
+      setRemote({ url: '', author: '', license: '', source: '' });
+      toast.success('Image imported');
+    } catch (importError) {
+      setError(describeError(importError));
+    }
+  };
 
   useEffect(
     () => () => {
@@ -152,6 +189,58 @@ export function ProductImageManager({ product }: { product: Product }) {
           }}
         />
       </label>
+      <form
+        className="space-y-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void importFromUrl();
+        }}
+      >
+        <TextField
+          label="Or import from a URL"
+          type="url"
+          inputMode="url"
+          placeholder="https://images.example.com/photo.jpg"
+          value={remote.url}
+          onChange={(event) => setRemote({ ...remote, url: event.target.value })}
+          hint="The server downloads, validates and optimizes it. Private addresses are blocked."
+        />
+        <details className="text-sm">
+          <summary className="cursor-pointer text-fg-muted hover:text-fg">
+            Add a photo credit (optional)
+          </summary>
+          <div className="mt-3 space-y-3">
+            <TextField
+              label="Author"
+              value={remote.author}
+              onChange={(event) => setRemote({ ...remote, author: event.target.value })}
+            />
+            <TextField
+              label="License"
+              placeholder="CC BY 2.0"
+              value={remote.license}
+              onChange={(event) => setRemote({ ...remote, license: event.target.value })}
+            />
+            <TextField
+              label="Source page"
+              type="url"
+              placeholder="https://www.flickr.com/photos/..."
+              value={remote.source}
+              onChange={(event) => setRemote({ ...remote, source: event.target.value })}
+            />
+          </div>
+        </details>
+        <Button
+          type="submit"
+          variant="secondary"
+          disabled={busy || !remote.url.trim()}
+          loading={importImage.isPending}
+          icon={<Link2 className="size-4" aria-hidden />}
+        >
+          Import image
+        </Button>
+      </form>
+      {product.image?.credit && <PhotoCredit credit={product.image.credit} />}
       {error && <ErrorState message={error} />}
       <ConfirmDialog
         open={confirming}

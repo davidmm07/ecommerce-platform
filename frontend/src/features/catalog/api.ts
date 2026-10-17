@@ -1,7 +1,14 @@
 import type { Page } from '@/shared/api/http';
 import { getJson, request, upload } from '@/shared/api/http';
 
-import type { Category, Product, ProductChanges, ProductInput, ProductQuery } from './types';
+import type {
+  Category,
+  ImageCredit,
+  Product,
+  ProductChanges,
+  ProductInput,
+  ProductQuery,
+} from './types';
 
 export const catalogApi = {
   categories: (signal?: AbortSignal) => getJson<Category[]>('/categories', { signal }),
@@ -34,6 +41,20 @@ export const catalogApi = {
       onProgress,
     });
   },
+
+  importImageFromUrl: (
+    id: string,
+    version: number,
+    body: {
+      url: string;
+      credit: (Omit<ImageCredit, 'license_url'> & { license_url?: string }) | null;
+    },
+  ) =>
+    getJson<Product>(`/products/${id}/image/from-url`, {
+      method: 'PUT',
+      body,
+      headers: { 'If-Match': `"${version}"` },
+    }),
 
   removeImage: (id: string, version: number) =>
     getJson<Product>(`/products/${id}/image`, {
