@@ -7,6 +7,7 @@ from uuid import UUID
 
 from ecommerce.domain.catalog.category import Category
 from ecommerce.domain.catalog.errors import InsufficientStock, ProductUnavailable, StockShortage
+from ecommerce.domain.catalog.image import ProductImage
 from ecommerce.domain.catalog.sku import Sku
 from ecommerce.domain.errors import FieldErrors, InvalidValue
 from ecommerce.domain.money import DEFAULT_CURRENCY, Money
@@ -118,6 +119,7 @@ class Product:
     updated_at: datetime
     version: int = 1
     archived_at: datetime | None = None
+    image: ProductImage | None = None
 
     @classmethod
     def create(
@@ -180,6 +182,21 @@ class Product:
         _ensure_positive(quantity)
         self.stock += quantity
         self.updated_at = now
+
+    def replace_image(self, image: ProductImage, now: datetime) -> ProductImage | None:
+        self._ensure_active()
+        previous = self.image
+        self.image = image
+        self.updated_at = now
+        return previous
+
+    def remove_image(self, now: datetime) -> ProductImage | None:
+        self._ensure_active()
+        previous = self.image
+        if previous is not None:
+            self.image = None
+            self.updated_at = now
+        return previous
 
     def archive(self, now: datetime) -> None:
         if self.archived_at is None:
