@@ -12,12 +12,15 @@ from ecommerce.application.errors import (
     ConcurrentModification,
     DuplicateSku,
     IdempotencyKeyReused,
+    ImageTooLarge,
     ImportLimitExceeded,
+    InvalidImage,
     InvalidImportFile,
     NotFoundError,
     PaymentDeclined,
     PaymentUnavailable,
     RequestInProgress,
+    UnsupportedImageType,
     VersionMismatch,
 )
 from ecommerce.domain.catalog.errors import InsufficientStock, ProductUnavailable
@@ -51,6 +54,9 @@ PROBLEM_TYPES: dict[type[Exception], ProblemType] = {
     PaymentUnavailable: ProblemType(502, "Payment provider unavailable"),
     InvalidImportFile: ProblemType(422, "Invalid import file"),
     ImportLimitExceeded: ProblemType(413, "Import too large"),
+    InvalidImage: ProblemType(422, "Invalid image"),
+    UnsupportedImageType: ProblemType(415, "Unsupported image type"),
+    ImageTooLarge: ProblemType(413, "Image too large"),
 }
 _FALLBACK = ProblemType(400, "Bad request")
 

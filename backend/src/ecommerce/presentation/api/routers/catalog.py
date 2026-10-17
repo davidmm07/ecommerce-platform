@@ -5,7 +5,12 @@ from fastapi import APIRouter, Query, Response, status
 
 from ecommerce.application.catalog.use_cases import ArchiveProductCommand
 from ecommerce.domain.catalog.category import Category
-from ecommerce.presentation.api.dependencies import ContainerDep, ExpectedVersionDep, etag_for
+from ecommerce.presentation.api.dependencies import (
+    ContainerDep,
+    ExpectedVersionDep,
+    MediaUrlsDep,
+    etag_for,
+)
 from ecommerce.presentation.api.schemas.common import PageOut, problem_responses
 from ecommerce.presentation.api.schemas.products import (
     CategoryOut,
@@ -33,10 +38,10 @@ async def list_categories() -> list[CategoryOut]:
     responses=problem_responses(422),
 )
 async def search_products(
-    container: ContainerDep, params: Annotated[ProductSearchParams, Query()]
+    container: ContainerDep, media: MediaUrlsDep, params: Annotated[ProductSearchParams, Query()]
 ) -> PageOut[ProductOut]:
     page = await container.search_products.execute(params.to_criteria())
-    return PageOut[ProductOut].from_page(page, ProductOut.from_domain)
+    return PageOut[ProductOut].from_page(page, lambda item: ProductOut.from_domain(item, media))
 
 
 @router.post(
@@ -46,19 +51,21 @@ async def search_products(
     responses=problem_responses(409, 422),
 )
 async def create_product(
-    container: ContainerDep, body: ProductCreate, response: Response
+    container: ContainerDep, media: MediaUrlsDep, body: ProductCreate, response: Response
 ) -> ProductOut:
     product = await container.create_product.execute(body.to_command())
     response.headers["Location"] = f"/api/v1/products/{product.id}"
     response.headers["ETag"] = etag_for(product.version)
-    return ProductOut.from_domain(product)
+    return ProductOut.from_domain(product, media)
 
 
 @router.get("/products/{product_id}", summary="Get a product", responses=problem_responses(404))
-async def get_product(container: ContainerDep, product_id: UUID, response: Response) -> ProductOut:
+async def get_product(
+    container: ContainerDep, media: MediaUrlsDep, product_id: UUID, response: Response
+) -> ProductOut:
     product = await container.get_product.execute(product_id)
     response.headers["ETag"] = etag_for(product.version)
-    return ProductOut.from_domain(product)
+    return ProductOut.from_domain(product, media)
 
 
 @router.patch(
@@ -68,7 +75,9 @@ async def get_product(container: ContainerDep, product_id: UUID, response: Respo
     responses=problem_responses(400, 404, 409, 412, 422),
 )
 async def update_product(
+    *,
     container: ContainerDep,
+    media: MediaUrlsDep,
     product_id: UUID,
     body: ProductUpdate,
     version: ExpectedVersionDep,
@@ -76,7 +85,7 @@ async def update_product(
 ) -> ProductOut:
     product = await container.update_product.execute(body.to_command(product_id, version))
     response.headers["ETag"] = etag_for(product.version)
-    return ProductOut.from_domain(product)
+    return ProductOut.from_domain(product, media)
 
 
 @router.delete(

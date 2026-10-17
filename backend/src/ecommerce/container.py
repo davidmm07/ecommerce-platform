@@ -1,5 +1,10 @@
 from uuid import uuid4
 
+from ecommerce.application.catalog.images import (
+    ImportProductImages,
+    RemoveProductImage,
+    ReplaceProductImage,
+)
 from ecommerce.application.catalog.use_cases import (
     ArchiveProduct,
     CreateProduct,
@@ -11,6 +16,7 @@ from ecommerce.application.imports.use_case import ImportProducts
 from ecommerce.application.ordering.cart import QuoteCart
 from ecommerce.application.ordering.place_order import PlaceOrder
 from ecommerce.application.ordering.queries import GetOrder, ListOrders
+from ecommerce.application.ports.media import ImageProcessor, ObjectStorage
 from ecommerce.application.ports.payments import PaymentGateway
 from ecommerce.application.ports.system import Clock
 from ecommerce.application.ports.unit_of_work import UnitOfWork
@@ -23,6 +29,7 @@ from ecommerce.domain.ordering.pricing import (
 from ecommerce.infrastructure.clock import SystemClock
 from ecommerce.infrastructure.config import Settings
 from ecommerce.infrastructure.files.csv_reader import CsvProductTableReader
+from ecommerce.infrastructure.images.pillow_processor import PillowImageProcessor
 from ecommerce.infrastructure.payments.resilient import ResilientPaymentGateway
 from ecommerce.infrastructure.payments.simulated import SimulatedPaymentGateway
 from ecommerce.infrastructure.persistence.database import (
@@ -35,6 +42,8 @@ from ecommerce.infrastructure.persistence.read_models import (
     SqlAlchemyOrderReadModel,
 )
 from ecommerce.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
+from ecommerce.infrastructure.storage.local import LocalObjectStorage
+from ecommerce.infrastructure.storage.s3 import S3ObjectStorage, create_s3_client
 
 
 class Container:
@@ -44,6 +53,8 @@ class Container:
         *,
         clock: Clock | None = None,
         payment_gateway: PaymentGateway | None = None,
+        storage: ObjectStorage | None = None,
+        image_processor: ImageProcessor | None = None,
     ) -> None:
         self.settings = settings
         self.engine = create_engine(
@@ -55,6 +66,11 @@ class Container:
         self.clock = clock or SystemClock()
         self.payment_gateway = payment_gateway or self._build_payment_gateway()
         self.shipping_policy = self._build_shipping_policy()
+        self.storage = storage or self._build_storage()
+        self.image_processor = image_processor or PillowImageProcessor(
+            max_pixels=settings.image_max_pixels,
+            max_concurrency=settings.image_processing_concurrency,
+        )
 
         uow_factory = self.unit_of_work
         self.create_product = CreateProduct(uow_factory=uow_factory, clock=self.clock, new_id=uuid4)
@@ -70,6 +86,19 @@ class Container:
             clock=self.clock,
             new_id=uuid4,
             max_rows=settings.import_max_rows,
+        )
+        self.replace_product_image = ReplaceProductImage(
+            uow_factory=uow_factory,
+            processor=self.image_processor,
+            storage=self.storage,
+            clock=self.clock,
+            max_bytes=settings.image_max_bytes,
+        )
+        self.remove_product_image = RemoveProductImage(
+            uow_factory=uow_factory, storage=self.storage, clock=self.clock
+        )
+        self.import_product_images = ImportProductImages(
+            uow_factory=uow_factory, replace_image=self.replace_product_image
         )
         self.quote_cart = QuoteCart(uow_factory=uow_factory, shipping_policy=self.shipping_policy)
         self.place_order = PlaceOrder(
@@ -100,6 +129,15 @@ class Container:
             max_attempts=self.settings.payment_max_attempts,
             timeout_seconds=self.settings.payment_timeout_seconds,
         )
+
+    def _build_storage(self) -> ObjectStorage:
+        settings = self.settings
+        if settings.media_backend == "s3" and settings.s3_bucket:
+            client = create_s3_client(
+                region=settings.s3_region, endpoint_url=settings.s3_endpoint_url
+            )
+            return S3ObjectStorage(client=client, bucket=settings.s3_bucket)
+        return LocalObjectStorage(settings.media_root)
 
     def _build_shipping_policy(self) -> ShippingPolicy:
         return FreeShippingOverThreshold(

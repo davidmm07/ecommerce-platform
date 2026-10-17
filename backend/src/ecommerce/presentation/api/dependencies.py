@@ -3,10 +3,15 @@ from typing import Annotated, cast
 from fastapi import Depends, Header, HTTPException, Request
 
 from ecommerce.container import Container
+from ecommerce.presentation.api.media import MediaUrls
 
 
 def get_container(request: Request) -> Container:
     return cast(Container, request.app.state.container)
+
+
+def get_media_urls(request: Request) -> MediaUrls:
+    return cast(MediaUrls, request.app.state.media_urls)
 
 
 def expected_version(
@@ -32,3 +37,4 @@ def etag_for(version: int) -> str:
 
 ContainerDep = Annotated[Container, Depends(get_container)]
 ExpectedVersionDep = Annotated[int | None, Depends(expected_version)]
+MediaUrlsDep = Annotated[MediaUrls, Depends(get_media_urls)]

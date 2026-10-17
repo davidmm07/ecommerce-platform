@@ -18,6 +18,7 @@ from ecommerce.application.pagination import (
     PageRequest,
 )
 from ecommerce.domain.catalog.category import Category
+from ecommerce.domain.catalog.image import ProductImage
 from ecommerce.domain.catalog.product import (
     DESCRIPTION_MAX_LENGTH,
     MAX_STOCK,
@@ -25,7 +26,10 @@ from ecommerce.domain.catalog.product import (
     Product,
 )
 from ecommerce.domain.catalog.sku import SKU_MAX_LENGTH
+from ecommerce.presentation.api.media import MediaUrls
 from ecommerce.presentation.api.schemas.common import ApiModel
+
+DEFAULT_IMAGE_WIDTH = 640
 
 Price = Annotated[Decimal, Field(gt=0, max_digits=12, decimal_places=2, examples=["89.99"])]
 Stock = Annotated[int, Field(ge=0, le=MAX_STOCK, examples=[150])]
@@ -87,6 +91,46 @@ class ProductUpdate(ApiModel):
         )
 
 
+class ImageSourceOut(ApiModel):
+    type: str = Field(examples=["image/avif"])
+    srcset: str = Field(
+        examples=[
+            "/media/products/0b7c/5f1e-160.avif 160w, /media/products/0b7c/5f1e-320.avif 320w"
+        ]
+    )
+
+
+class ProductImageOut(ApiModel):
+    url: str = Field(examples=["/media/products/0b7c/5f1e-640.webp"])
+    width: int = Field(examples=[1280])
+    height: int = Field(examples=[960])
+    placeholder: str = Field(examples=["data:image/webp;base64,UklGRkIAAABXRUJQVlA4IDYAAAA"])
+    sources: list[ImageSourceOut]
+
+    @classmethod
+    def from_domain(cls, image: ProductImage, media: MediaUrls) -> "ProductImageOut":
+        fallback_width = next(
+            (width for width in image.widths if width >= DEFAULT_IMAGE_WIDTH), image.widths[-1]
+        )
+        fallback_format = "webp" if "webp" in image.formats else image.formats[-1]
+        return cls(
+            url=media.url(image.variant_key(fallback_width, fallback_format)),
+            width=image.width,
+            height=image.height,
+            placeholder=image.placeholder,
+            sources=[
+                ImageSourceOut(
+                    type=f"image/{fmt}",
+                    srcset=", ".join(
+                        f"{media.url(image.variant_key(width, fmt))} {width}w"
+                        for width in image.widths
+                    ),
+                )
+                for fmt in image.formats
+            ],
+        )
+
+
 class ProductOut(ApiModel):
     id: UUID
     sku: str
@@ -100,11 +144,12 @@ class ProductOut(ApiModel):
     in_stock: bool
     weight_kg: Decimal
     version: int
+    image: ProductImageOut | None
     created_at: datetime
     updated_at: datetime
 
     @classmethod
-    def from_domain(cls, product: Product) -> "ProductOut":
+    def from_domain(cls, product: Product, media: MediaUrls) -> "ProductOut":
         return cls(
             id=product.id,
             sku=product.sku.value,
@@ -118,6 +163,7 @@ class ProductOut(ApiModel):
             in_stock=product.in_stock,
             weight_kg=product.weight_kg,
             version=product.version,
+            image=ProductImageOut.from_domain(product.image, media) if product.image else None,
             created_at=product.created_at,
             updated_at=product.updated_at,
         )

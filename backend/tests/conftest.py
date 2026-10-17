@@ -50,7 +50,14 @@ def clock() -> FixedClock:
 
 
 @pytest.fixture(scope="session")
-async def container(migrated_database: str, clock: FixedClock) -> AsyncIterator[Container]:
+def media_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return tmp_path_factory.mktemp("media")
+
+
+@pytest.fixture(scope="session")
+async def container(
+    migrated_database: str, clock: FixedClock, media_root: Path
+) -> AsyncIterator[Container]:
     settings = Settings(
         _env_file=None,
         environment="test",
@@ -61,6 +68,9 @@ async def container(migrated_database: str, clock: FixedClock) -> AsyncIterator[
         payment_latency_ms=0,
         import_max_bytes=64 * 1024,
         import_max_rows=500,
+        media_root=media_root,
+        media_serve=True,
+        image_max_bytes=2 * 1024 * 1024,
     )
     app_container = Container(settings, clock=clock)
     yield app_container
