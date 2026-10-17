@@ -123,10 +123,8 @@ To reuse an existing database instead, export `TEST_DATABASE_URL`, for example
 
 ## The sample CSV
 
-The provided example file, `LoanPro Code Challenge E-Commerce - LoanPro Code Challenge
-E-Commerce.csv`, was **downloaded on October 17, 2026** (2026-10-17). It is stored unchanged in
-[`data/products-sample.csv`](data/products-sample.csv) (SHA-256
-`6fc46b84badb1ac37b8b19a2d0741aa7728d6c93a9fe949b19f676892dc8fd24`).
+The provided example file was **downloaded on October 17, 2026** (2026-10-17). It is stored
+unchanged in [`data/products-sample.csv`](data/products-sample.csv).
 
 It has 97 data rows with deliberate data quality problems. This is how each one is handled.
 Line numbers include the header, so they match what a spreadsheet shows.
