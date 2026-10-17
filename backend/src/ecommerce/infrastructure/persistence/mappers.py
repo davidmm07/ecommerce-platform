@@ -1,4 +1,7 @@
+from typing import Any
+
 from ecommerce.domain.catalog.category import Category
+from ecommerce.domain.catalog.image import ProductImage
 from ecommerce.domain.catalog.product import Product
 from ecommerce.domain.catalog.sku import Sku
 from ecommerce.domain.money import Money
@@ -33,6 +36,7 @@ class ProductMapper:
         record.weight_kg = product.weight_kg
         record.updated_at = product.updated_at
         record.archived_at = product.archived_at
+        record.image = _image_to_json(product.image)
 
     @staticmethod
     def to_domain(record: ProductRecord) -> Product:
@@ -49,6 +53,7 @@ class ProductMapper:
             updated_at=record.updated_at,
             version=record.version,
             archived_at=record.archived_at,
+            image=_image_from_json(record.image),
         )
 
 
@@ -147,3 +152,29 @@ class OrderMapper:
             payment=payment,
             version=record.version,
         )
+
+
+def _image_to_json(image: ProductImage | None) -> dict[str, Any] | None:
+    if image is None:
+        return None
+    return {
+        "key": image.key,
+        "width": image.width,
+        "height": image.height,
+        "widths": list(image.widths),
+        "formats": list(image.formats),
+        "placeholder": image.placeholder,
+    }
+
+
+def _image_from_json(value: dict[str, Any] | None) -> ProductImage | None:
+    if value is None:
+        return None
+    return ProductImage(
+        key=value["key"],
+        width=value["width"],
+        height=value["height"],
+        widths=tuple(value["widths"]),
+        formats=tuple(value["formats"]),
+        placeholder=value["placeholder"],
+    )

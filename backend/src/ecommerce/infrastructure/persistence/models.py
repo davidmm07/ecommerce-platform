@@ -16,7 +16,7 @@ from sqlalchemy import (
     String,
     text,
 )
-from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from ecommerce.domain.catalog.category import Category
@@ -62,6 +62,7 @@ class ProductRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    image: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     search_vector: Mapped[Any] = mapped_column(
         TSVECTOR, Computed(SEARCH_VECTOR_SQL, persisted=True), deferred=True
     )
@@ -72,6 +73,7 @@ class ProductRecord(Base):
         CheckConstraint("stock >= 0", name="stock_non_negative"),
         CheckConstraint("weight_kg >= 0", name="weight_non_negative"),
         CheckConstraint(_in_list("category", [c.value for c in Category]), name="category_known"),
+        CheckConstraint("image IS NULL OR jsonb_typeof(image) = 'object'", name="image_is_object"),
         Index(
             "uq_products_sku_active",
             "sku",

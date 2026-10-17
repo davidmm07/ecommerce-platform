@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ecommerce.application.errors import ConcurrentModification, DuplicateSku, RequestInProgress
 from ecommerce.container import Container
+from ecommerce.domain.catalog.image import ProductImage
 from ecommerce.domain.money import Money
 from ecommerce.domain.ordering.order import Customer, Order, OrderLine, ShippingAddress
 from ecommerce.domain.ordering.pricing import WeightBasedShipping
@@ -140,3 +141,33 @@ async def test_orders_round_trip_with_lines(clean_database: Container) -> None:
     assert stored.number == order.number
     assert stored.lines == order.lines
     assert stored.totals == order.totals
+
+
+async def test_product_images_round_trip_as_jsonb(clean_database: Container) -> None:
+    product = make_product("IM-001")
+    image = ProductImage(
+        key=f"products/{product.id}/abc123",
+        width=1280,
+        height=960,
+        widths=(320, 1280),
+        formats=("avif", "webp"),
+        placeholder="data:image/webp;base64,AAAA",
+    )
+    product.replace_image(image, NOW)
+    async with clean_database.unit_of_work() as uow:
+        await uow.products.add(product)
+        await uow.commit()
+
+    async with clean_database.unit_of_work() as uow:
+        stored = await uow.products.get(product.id, lock=True)
+        assert stored is not None
+        assert stored.image == image
+        stored.remove_image(NOW)
+        await uow.products.update(stored)
+        await uow.commit()
+
+    async with clean_database.engine.connect() as connection:
+        value = await connection.scalar(
+            text("SELECT image IS NULL FROM products WHERE sku = 'IM-001'")
+        )
+    assert value is True
