@@ -122,3 +122,49 @@ async def test_products_without_images_report_null(
     removed = await client.delete(f"{PRODUCTS}/{product['id']}/image")
     assert removed.status_code == 200
     assert removed.headers["etag"] == '"1"'
+
+
+async def test_import_from_url_processes_and_credits_the_image(
+    client: AsyncClient, product: dict[str, object]
+) -> None:
+    response = await client.put(
+        f"{PRODUCTS}/{product['id']}/image/from-url",
+        json={
+            "url": "https://images.example.com/lamp.jpg",
+            "credit": {
+                "author": "Jane Doe",
+                "license": "CC BY 2.0",
+                "source_url": "https://www.flickr.com/photos/example/1",
+                "license_url": "https://creativecommons.org/licenses/by/2.0/",
+            },
+        },
+        headers={"If-Match": '"1"'},
+    )
+
+    assert response.status_code == 200
+    image = response.json()["image"]
+    assert (image["width"], image["height"]) == (900, 600)
+    assert image["url"].startswith("/media/")
+    assert image["credit"]["author"] == "Jane Doe"
+    served = await client.get(image["url"])
+    assert served.status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("body", "status", "code"),
+    [
+        ({"url": "https://images.example.com/missing.jpg"}, 502, "image_source_unavailable"),
+        ({"url": "file:///etc/passwd"}, 422, "validation_failed"),
+        (
+            {"url": "https://images.example.com/lamp.jpg", "credit": {"author": "x"}},
+            422,
+            "validation_failed",
+        ),
+    ],
+)
+async def test_import_from_url_reports_problems(
+    client: AsyncClient, product: dict[str, object], body: dict, status: int, code: str
+) -> None:
+    response = await client.put(f"{PRODUCTS}/{product['id']}/image/from-url", json=body)
+    assert response.status_code == status
+    assert response.json()["code"] == code

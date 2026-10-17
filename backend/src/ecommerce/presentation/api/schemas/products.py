@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import ConfigDict, Field
 
+from ecommerce.application.catalog.images import ImageCreditInput
 from ecommerce.application.catalog.queries import (
     MAX_SEARCH_TEXT_LENGTH,
     ProductSearchCriteria,
@@ -18,7 +19,7 @@ from ecommerce.application.pagination import (
     PageRequest,
 )
 from ecommerce.domain.catalog.category import Category
-from ecommerce.domain.catalog.image import ProductImage
+from ecommerce.domain.catalog.image import MAX_URL_LENGTH, ProductImage
 from ecommerce.domain.catalog.product import (
     DESCRIPTION_MAX_LENGTH,
     MAX_STOCK,
@@ -100,12 +101,42 @@ class ImageSourceOut(ApiModel):
     )
 
 
+class ImageCreditOut(ApiModel):
+    author: str = Field(examples=["Jane Doe"])
+    license: str = Field(examples=["CC BY 2.0"])
+    source_url: str = Field(examples=["https://www.flickr.com/photos/example/123"])
+    license_url: str | None = Field(examples=["https://creativecommons.org/licenses/by/2.0/"])
+
+
+class ImageCreditIn(ApiModel):
+    author: str = Field(min_length=1, max_length=200)
+    license: str = Field(min_length=1, max_length=60)
+    source_url: str = Field(min_length=1, max_length=MAX_URL_LENGTH)
+    license_url: str | None = Field(default=None, max_length=MAX_URL_LENGTH)
+
+    def to_input(self) -> ImageCreditInput:
+        return ImageCreditInput(
+            author=self.author,
+            license=self.license,
+            source_url=self.source_url,
+            license_url=self.license_url,
+        )
+
+
+class ImageFromUrlIn(ApiModel):
+    url: str = Field(
+        min_length=1, max_length=MAX_URL_LENGTH, examples=["https://images.example.com/p.jpg"]
+    )
+    credit: ImageCreditIn | None = None
+
+
 class ProductImageOut(ApiModel):
     url: str = Field(examples=["/media/products/0b7c/5f1e-640.webp"])
     width: int = Field(examples=[1280])
     height: int = Field(examples=[960])
     placeholder: str = Field(examples=["data:image/webp;base64,UklGRkIAAABXRUJQVlA4IDYAAAA"])
     sources: list[ImageSourceOut]
+    credit: ImageCreditOut | None
 
     @classmethod
     def from_domain(cls, image: ProductImage, media: MediaUrls) -> "ProductImageOut":
@@ -118,6 +149,16 @@ class ProductImageOut(ApiModel):
             width=image.width,
             height=image.height,
             placeholder=image.placeholder,
+            credit=(
+                ImageCreditOut(
+                    author=image.credit.author,
+                    license=image.credit.license,
+                    source_url=image.credit.source_url,
+                    license_url=image.credit.license_url,
+                )
+                if image.credit
+                else None
+            ),
             sources=[
                 ImageSourceOut(
                     type=f"image/{fmt}",

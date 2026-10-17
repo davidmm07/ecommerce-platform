@@ -12,9 +12,11 @@ from ecommerce.application.errors import (
     ConcurrentModification,
     DuplicateSku,
     IdempotencyKeyReused,
+    ImageSourceUnavailable,
     ImageTooLarge,
     ImportLimitExceeded,
     InvalidImage,
+    InvalidImageSource,
     InvalidImportFile,
     NotFoundError,
     PaymentDeclined,
@@ -57,6 +59,8 @@ PROBLEM_TYPES: dict[type[Exception], ProblemType] = {
     InvalidImage: ProblemType(422, "Invalid image"),
     UnsupportedImageType: ProblemType(415, "Unsupported image type"),
     ImageTooLarge: ProblemType(413, "Image too large"),
+    InvalidImageSource: ProblemType(422, "Image URL not allowed"),
+    ImageSourceUnavailable: ProblemType(502, "Image URL unavailable"),
 }
 _FALLBACK = ProblemType(400, "Bad request")
 

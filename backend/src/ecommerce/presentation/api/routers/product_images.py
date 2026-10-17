@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 
 from ecommerce.application.catalog.images import (
+    ImportProductImageFromUrlCommand,
     RemoveProductImageCommand,
     ReplaceProductImageCommand,
 )
@@ -14,7 +15,7 @@ from ecommerce.presentation.api.dependencies import (
     etag_for,
 )
 from ecommerce.presentation.api.schemas.common import problem_responses
-from ecommerce.presentation.api.schemas.products import ProductOut
+from ecommerce.presentation.api.schemas.products import ImageFromUrlIn, ProductOut
 
 router = APIRouter(tags=["catalog"])
 
@@ -49,6 +50,37 @@ async def replace_product_image(
     content = await file.read(limit + 1)
     product = await container.replace_product_image.execute(
         ReplaceProductImageCommand(product_id, content, version)
+    )
+    response.headers["ETag"] = etag_for(product.version)
+    return ProductOut.from_domain(product, media)
+
+
+@router.put(
+    "/products/{product_id}/image/from-url",
+    summary="Import the product image from a URL",
+    description=(
+        "The server downloads the image with SSRF protections (https only, public addresses, "
+        "size and time limits) and runs it through the same pipeline as an upload. "
+        "An optional credit is stored and shown next to the image."
+    ),
+    responses=problem_responses(400, 404, 409, 412, 413, 415, 422, 502),
+)
+async def import_product_image_from_url(
+    *,
+    container: ContainerDep,
+    media: MediaUrlsDep,
+    product_id: UUID,
+    body: ImageFromUrlIn,
+    version: ExpectedVersionDep,
+    response: Response,
+) -> ProductOut:
+    product = await container.import_product_image_from_url.execute(
+        ImportProductImageFromUrlCommand(
+            product_id,
+            body.url,
+            body.credit.to_input() if body.credit else None,
+            version,
+        )
     )
     response.headers["ETag"] = etag_for(product.version)
     return ProductOut.from_domain(product, media)
