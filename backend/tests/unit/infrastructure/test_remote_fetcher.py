@@ -28,11 +28,21 @@ async def resolver(host: str) -> list[str]:
     return ADDRESSES[host]
 
 
-def fetcher(handler: Callable[[httpx.Request], httpx.Response], **options: Any) -> HttpImageFetcher:
+class RecordedSleeps(list[float]):
+    async def __call__(self, seconds: float) -> None:
+        self.append(seconds)
+
+
+def fetcher(
+    handler: Callable[[httpx.Request], httpx.Response],
+    sleeps: RecordedSleeps | None = None,
+    **options: Any,
+) -> HttpImageFetcher:
     return HttpImageFetcher(
         max_bytes=1024,
         resolver=resolver,
         transport=httpx.MockTransport(handler),
+        sleep=RecordedSleeps() if sleeps is None else sleeps,
         **options,
     )
 
@@ -138,3 +148,52 @@ async def test_network_failures_become_unavailable_sources() -> None:
 
     with pytest.raises(ImageSourceUnavailable, match="ConnectTimeout"):
         await fetcher(handler).fetch("https://img.example.com/a.jpg")
+
+
+def flaky(*responses: httpx.Response) -> Callable[[httpx.Request], httpx.Response]:
+    queue = list(responses)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return queue.pop(0) if queue else image_response(request)
+
+    return handler
+
+
+async def test_retries_rate_limits_honouring_retry_after() -> None:
+    sleeps = RecordedSleeps()
+    client = fetcher(flaky(httpx.Response(429, headers={"retry-after": "3"})), sleeps)
+    assert await client.fetch("https://img.example.com/a.jpg") == b"jpeg-bytes"
+    assert sleeps == [3.0]
+
+
+async def test_backs_off_exponentially_then_gives_up() -> None:
+    sleeps = RecordedSleeps()
+    client = fetcher(lambda request: httpx.Response(503), sleeps)
+    with pytest.raises(ImageSourceUnavailable, match="answered 503"):
+        await client.fetch("https://img.example.com/a.jpg")
+    assert sleeps == [1.0, 2.0]
+
+
+async def test_does_not_wait_longer_than_the_retry_limit() -> None:
+    sleeps = RecordedSleeps()
+    client = fetcher(lambda request: httpx.Response(429, headers={"retry-after": "3600"}), sleeps)
+    with pytest.raises(ImageSourceUnavailable, match="answered 429"):
+        await client.fetch("https://img.example.com/a.jpg")
+    assert sleeps == []
+
+
+async def test_retries_network_errors_but_not_client_errors() -> None:
+    attempts: list[str] = []
+
+    def drop_once(request: httpx.Request) -> httpx.Response:
+        attempts.append(request.url.path)
+        if len(attempts) == 1:
+            raise httpx.ConnectError("reset", request=request)
+        return httpx.Response(404) if request.url.path == "/gone.jpg" else image_response(request)
+
+    sleeps = RecordedSleeps()
+    assert await fetcher(drop_once, sleeps).fetch("https://img.example.com/a.jpg") == b"jpeg-bytes"
+    with pytest.raises(ImageSourceUnavailable, match="answered 404"):
+        await fetcher(drop_once, sleeps).fetch("https://img.example.com/gone.jpg")
+    assert attempts == ["/a.jpg", "/a.jpg", "/gone.jpg"]
+    assert sleeps == [1.0]

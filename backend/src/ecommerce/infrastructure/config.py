@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     image_fetch_allowed_hosts: Annotated[list[str], NoDecode] = Field(default_factory=list)
     image_fetch_allow_http: bool = False
     image_fetch_allow_private_networks: bool = False
+    image_fetch_user_agent: str = Field(
+        default="EcommercePlatform/1.0 (product image import)", min_length=1, max_length=200
+    )
+    image_fetch_max_attempts: int = Field(default=3, ge=1, le=5)
+    image_fetch_max_retry_wait_seconds: float = Field(default=10.0, ge=0, le=60)
 
     @field_validator("cors_origins", "image_fetch_allowed_hosts", mode="before")
     @classmethod

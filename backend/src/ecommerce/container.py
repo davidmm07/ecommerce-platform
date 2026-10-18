@@ -80,6 +80,9 @@ class Container:
             allowed_hosts=settings.image_fetch_allowed_hosts,
             allow_http=settings.image_fetch_allow_http,
             allow_private_networks=settings.image_fetch_allow_private_networks,
+            user_agent=settings.image_fetch_user_agent,
+            max_attempts=settings.image_fetch_max_attempts,
+            max_retry_wait_seconds=settings.image_fetch_max_retry_wait_seconds,
         )
 
         uow_factory = self.unit_of_work
