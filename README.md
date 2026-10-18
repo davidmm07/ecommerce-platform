@@ -19,29 +19,30 @@ payment releases the stock it reserved.
 5. [Approach](#approach)
 6. [Architecture: Clean vs Layered](#architecture-clean-vs-layered)
 7. [Database: PostgreSQL vs MongoDB](#database-postgresql-vs-mongodb)
-8. [Design patterns](#design-patterns)
-9. [SOLID in practice](#solid-in-practice)
-10. [API design](#api-design)
-11. [Data validation](#data-validation)
-12. [Error handling](#error-handling)
-13. [Purchase flow](#purchase-flow)
-14. [Product search](#product-search)
-15. [CSV import rules](#csv-import-rules)
-16. [Product images](#product-images)
-17. [Frontend](#frontend)
-18. [Dark and light mode](#dark-and-light-mode)
-19. [Testing and quality gates](#testing-and-quality-gates)
-20. [Security notes](#security-notes)
-21. [Configuration](#configuration)
-22. [Alternatives considered](#alternatives-considered)
-23. [Known limitations and next steps](#known-limitations-and-next-steps)
+8. [Database design](#database-design)
+9. [Design patterns](#design-patterns)
+10. [SOLID in practice](#solid-in-practice)
+11. [API design](#api-design)
+12. [Data validation](#data-validation)
+13. [Error handling](#error-handling)
+14. [Purchase flow](#purchase-flow)
+15. [Product search](#product-search)
+16. [CSV import rules](#csv-import-rules)
+17. [Product images](#product-images)
+18. [Frontend](#frontend)
+19. [Dark and light mode](#dark-and-light-mode)
+20. [Testing and quality gates](#testing-and-quality-gates)
+21. [Security notes](#security-notes)
+22. [Configuration](#configuration)
+23. [Alternatives considered](#alternatives-considered)
+24. [Known limitations and next steps](#known-limitations-and-next-steps)
 
 ## Highlights
 
 | Area | What is implemented |
 |------|---------------------|
 | Product CRUD | Create, read, partial update and soft delete, with optimistic concurrency (`ETag` / `If-Match`) |
-| CSV import | Upload or CLI, row level report, dry run, upsert by SKU, duplicate detection, one transaction |
+| CSV import | Upload or CLI, row level report, dry run, upsert by SKU, duplicate detection, one transaction, optional image URL columns |
 | Product images | Optional per product. Uploaded or imported from a URL (SSRF safe), validated and normalized server side, AVIF and WebP in 5 widths, content hashed immutable URLs, blur-up placeholders, responsive `<picture>`, photo credits |
 | Search | PostgreSQL full-text search plus trigram fuzzy matching, filters, sorting and pagination |
 | Purchase | Cart, server side quote, weight based shipping, simulated card payments, idempotent checkout |
@@ -49,7 +50,7 @@ payment releases the stock it reserved.
 | API | Versioned REST, RFC 9457 Problem Details, OpenAPI docs, request ids, size limits |
 | Frontend | TanStack Router, Query, Table, Form and Store, Zod validation, Tailwind CSS |
 | Theming | Light, dark and system themes from semantic design tokens, no flash on load, CSP friendly |
-| Quality | 295 backend tests (97% coverage) incl. real PostgreSQL via Testcontainers, 45 frontend tests, `mypy --strict`, architecture contracts, CI |
+| Quality | 304 backend tests (97% coverage) incl. real PostgreSQL via Testcontainers, 47 frontend tests, `mypy --strict`, architecture contracts, CI |
 | Delivery | Monorepo, multi stage non-root images, Compose stack with migrations, health checks and a seed job |
 
 ## Quick start with Docker
@@ -65,10 +66,10 @@ make seed
 ```
 
 `make up` creates a git ignored `.env` with a random database password the first time, builds the
-images and starts PostgreSQL, the migration job, the API and the web app. `make seed` imports the
-sample CSV and then downloads a photo for every product from the URLs listed in
-[`data/product-images.csv`](data/product-images.csv), through the same use cases the UI uses. The
-photo step needs internet access; without it the products are still imported and show a
+images and starts PostgreSQL, the migration job, the API and the web app. `make seed` imports
+[`data/products-sample-images.csv`](data/products-sample-images.csv), the sample products plus a
+photo for each one downloaded from its image columns, through the same use case the Import page
+uses. The photos need internet access; without it the products are still imported and show a
 placeholder.
 
 | URL | What |
@@ -132,6 +133,9 @@ To reuse an existing database instead, export `TEST_DATABASE_URL`, for example
 
 The provided example file was **downloaded on October 17, 2026** (2026-10-17). It is stored
 unchanged in [`data/products-sample.csv`](data/products-sample.csv).
+[`data/products-sample-images.csv`](data/products-sample-images.csv) is the same file, line for
+line, with five optional image columns appended (see [Sample photos](#sample-photos)). Both files
+give the results below, and the second one also attaches 83 photos.
 
 It has 97 data rows with deliberate data quality problems. This is how each one is handled.
 Line numbers include the header, so they match what a spreadsheet shows.
@@ -285,7 +289,7 @@ The dependency rule is **enforced in CI** with `import-linter` contracts in
 |   |   |-- infrastructure/    adapters: persistence, payments, images, storage, files, config
 |   |   |-- presentation/api/  FastAPI app, routers, schemas, middleware, problem details
 |   |   |-- container.py       composition root (dependency injection)
-|   |   `-- cli.py             operational commands (product and image seeding)
+|   |   `-- cli.py             operational commands (CSV import, used by the seed job)
 |   |-- migrations/            Alembic migrations
 |   `-- tests/                 unit, integration (PostgreSQL) and API tests
 |-- frontend/
@@ -293,8 +297,9 @@ The dependency rule is **enforced in CI** with `import-linter` contracts in
 |   |-- src/features/          catalog, cart, checkout, orders, imports (feature folders)
 |   |-- src/shared/            HTTP client, UI components, formatting and form helpers
 |   `-- nginx/                 production web server config
-|-- data/products-sample.csv   the provided example file
-|-- data/product-images.csv    photo URL, author and license per SKU (no binaries in git)
+|-- data/
+|   |-- products-sample.csv         the provided example file, unchanged
+|   `-- products-sample-images.csv  the same rows plus image URL and photo credit columns
 |-- docker-compose.yml         db, migrate, api, web and seed services
 |-- Makefile                   one entry point for every workflow
 `-- .github/workflows/ci.yml   lint, types, tests, build, and a Compose smoke test
@@ -320,6 +325,148 @@ can be extracted into separate repositories later if teams split.
 
 MongoDB would win for a catalog with highly heterogeneous attributes per category. If that need
 appears, PostgreSQL `JSONB` columns cover it without giving up transactions.
+
+## Database design
+
+Three tables in PostgreSQL 17, created by Alembic migrations
+([`backend/migrations`](backend/migrations)) that match the SQLAlchemy models in
+[`models.py`](backend/src/ecommerce/infrastructure/persistence/models.py). Domain entities never
+see these classes: explicit mappers translate in both directions.
+
+```mermaid
+erDiagram
+    products ||--o{ order_lines : "is sold as"
+    orders ||--|{ order_lines : contains
+
+    products {
+        uuid id PK
+        varchar(32) sku UK "unique while archived_at is null"
+        varchar(200) name
+        varchar(2000) description
+        varchar(40) category "CHECK known category"
+        numeric price "12,2 - CHECK price > 0"
+        varchar(3) currency
+        integer stock "CHECK stock >= 0"
+        numeric weight_kg "8,3 - CHECK weight_kg >= 0"
+        jsonb image "nullable - CHECK is an object"
+        tsvector search_vector "generated - GIN index"
+        integer version "optimistic lock"
+        timestamptz created_at "indexed"
+        timestamptz updated_at
+        timestamptz archived_at "nullable - soft delete"
+    }
+
+    orders {
+        uuid id PK
+        varchar(16) number UK "ORD- plus 12 symbols from the id"
+        varchar(20) status "CHECK pending_payment, paid, payment_failed"
+        varchar(120) customer_name
+        varchar(254) customer_email "indexed"
+        varchar(200) shipping_line1
+        varchar(100) shipping_city
+        varchar(15) shipping_postal_code
+        varchar(2) shipping_country
+        varchar(3) currency
+        numeric subtotal "12,2"
+        numeric shipping_cost "12,2"
+        numeric total "12,2 - CHECK total = subtotal + shipping_cost"
+        numeric total_weight_kg "12,3"
+        varchar(100) idempotency_key UK
+        varchar(64) request_fingerprint "SHA-256 of the request"
+        varchar(64) payment_reference "nullable"
+        varchar(20) card_brand "nullable"
+        varchar(4) card_last4 "nullable"
+        varchar(40) payment_failure_code "nullable"
+        integer version "optimistic lock"
+        timestamptz created_at "indexed"
+        timestamptz updated_at
+    }
+
+    order_lines {
+        uuid order_id PK, FK "ON DELETE CASCADE"
+        integer position PK
+        uuid product_id FK "ON DELETE RESTRICT - indexed"
+        varchar(32) sku "snapshot"
+        varchar(200) name "snapshot"
+        numeric unit_price "12,2 - snapshot"
+        integer quantity "CHECK quantity > 0"
+        numeric unit_weight_kg "8,3 - snapshot"
+        numeric line_total "12,2"
+    }
+```
+
+Types are PostgreSQL types, and `numeric` precision and scale are in the notes. Every column is
+`NOT NULL` unless marked nullable.
+
+| Table | Role | Lifecycle |
+|-------|------|-----------|
+| `products` | The catalog, one row per product (an aggregate root) | Archived with `archived_at`, never deleted, so past orders keep their references |
+| `orders` | One checkout (an aggregate root). Customer, shipping address, totals and payment outcome are value objects stored as columns, because they are 1:1 with the order and never queried on their own | Created as `pending_payment`, then `paid` or `payment_failed` |
+| `order_lines` | The items of an order, part of the order aggregate. The composite key `(order_id, position)` keeps the cart order | Deleted with their order (`CASCADE`). A product that appears in an order cannot be deleted (`RESTRICT`) |
+
+Design decisions:
+
+- **Keys.** UUIDs are generated by the application, so an entity has its identity before it is
+  saved, ids cannot be guessed or enumerated, and bulk imports need no round trip per row. The
+  short, unique order `number` that customers see is derived from the id.
+- **Money and weights** are `NUMERIC`, never floats, with an explicit `currency` column. The
+  `total_consistent` check makes the database itself reject an order whose total does not add up.
+- **Snapshots for history.** Order lines copy SKU, name, unit price and weight at purchase time.
+  Editing or archiving a product never rewrites past orders, while `product_id` still links back
+  for reporting.
+- **Soft delete with a partial unique index.** `uq_products_sku_active` enforces unique SKUs only
+  where `archived_at IS NULL`, so an archived SKU can be reused and its old row stays for order
+  lines.
+- **Concurrency.** `version` is a SQLAlchemy `version_id_col`: each update runs
+  `UPDATE ... WHERE id = :id AND version = :expected` and fails if another writer got there first.
+  The API exposes it as the `ETag`. Checkout also takes `SELECT ... FOR UPDATE` row locks on the
+  products whose stock it reserves.
+- **Idempotent checkout without an extra table.** `idempotency_key` is unique, and
+  `request_fingerprint` (SHA-256 of the canonical request) detects a key reused with a different
+  body. The order row itself is the stored result that replays return.
+- **Integrity at rest.** Named `CHECK` constraints mirror the domain rules: `price_positive`,
+  `stock_non_negative`, `weight_non_negative`, `category_known`, `image_is_object`,
+  `status_known`, `total_consistent` and `quantity_positive`. All constraints and indexes follow one
+  naming convention (`pk_`, `fk_`, `uq_`, `ck_`, `ix_`), so migrations stay predictable.
+- **Card data.** Only the brand, the last 4 digits and the provider reference are stored, never the
+  number or the CVC.
+- **Search.** `search_vector` is a stored generated column (name and SKU weighted A, description
+  weighted B) with a GIN index. A `pg_trgm` GIN index on `name` powers fuzzy matching for typos.
+- **The optional image is a JSONB document**, not a table: it is metadata about files in object
+  storage, there is at most one per product, and it is always read with the product.
+
+  ```json
+  {
+    "key": "products/b4afc698-ec57-4925-9c9c-b4c57535bd14/7e2d46b95400fda9054e",
+    "width": 1280,
+    "height": 960,
+    "widths": [160, 320, 640, 960, 1280],
+    "formats": ["avif", "webp"],
+    "placeholder": "data:image/webp;base64,UklGR...",
+    "origin_url": "https://live.staticflickr.com/65535/51331948430_dc950d7a31_b.jpg",
+    "credit": {
+      "author": "Dennis S. Hurd",
+      "license": "CC BY 2.0",
+      "source_url": "https://www.flickr.com/photos/43296902@N00/51331948430",
+      "license_url": "https://creativecommons.org/licenses/by/2.0/"
+    }
+  }
+  ```
+
+- **No customers table yet.** Checkout is a guest flow, so the customer belongs to the order. With
+  authentication, a `customers` table and an `orders.customer_id` foreign key would be added, and
+  the address columns would stay as a snapshot of where that order was shipped.
+
+| Index | Kind | Serves |
+|-------|------|--------|
+| `pk_products`, `pk_orders`, `pk_order_lines` | B-tree, unique | Primary keys |
+| `uq_products_sku_active` | B-tree, unique, partial | SKU lookups (imports, cart) and uniqueness among active products |
+| `ix_products_search_vector` | GIN | Full-text search |
+| `ix_products_name_trgm` | GIN, `gin_trgm_ops` | Fuzzy name matching |
+| `ix_products_category`, `ix_products_price`, `ix_products_created_at` | B-tree | Catalog filters and sorting |
+| `uq_orders_number`, `uq_orders_idempotency_key` | B-tree, unique | Order lookup and idempotent replays |
+| `ix_orders_customer_email`, `ix_orders_created_at` | B-tree | Order history by email, newest first |
+| `ix_order_lines_product_id` | B-tree | The `RESTRICT` foreign key check and sales per product |
 
 ## Design patterns
 
@@ -367,7 +514,7 @@ Base path `/api/v1`. Full schema at `/docs` (Swagger UI) and `/openapi.json`.
 | PUT | `/products/{id}/image` | Upload or replace the image (multipart), optional `If-Match` | 200 + `ETag` |
 | PUT | `/products/{id}/image/from-url` | Download, process and attach an image from an https URL, optional credit and `If-Match` | 200 + `ETag` |
 | DELETE | `/products/{id}/image` | Remove the image, optional `If-Match` | 200 + `ETag` |
-| POST | `/product-imports` | Multipart CSV upload, `dry_run` query flag | 200 + import report |
+| POST | `/product-imports` | Multipart CSV upload with optional image columns, `dry_run` query flag | 200 + import report |
 | POST | `/checkout/quote` | Price a cart: subtotal, shipping, total | 200 |
 | POST | `/orders` | Place an order, `Idempotency-Key` header required | 201, or 200 on replay |
 | GET | `/orders` | List orders, optional `email` filter | 200 |
@@ -529,6 +676,16 @@ wildcards are escaped, so `%` and `_` are searched literally.
 - Invalid rows are reported with every reason and skipped. Valid rows are written in **one
   transaction**, so an import never stops halfway.
 - `dry_run=true` runs the full process, including database checks, and rolls back.
+- Optional image columns: `image_url, image_author, image_license, image_license_url,
+  image_source_url`. They are validated with the rest of the row: `image_url` must be an http(s)
+  URL, and a credit needs the author, the license and the source page.
+- Images are downloaded **after** the products are committed, through the SSRF safe fetcher with up
+  to 4 downloads at a time, and processed exactly like an upload. Each row reports its image as
+  `attached`, `unchanged` or `failed`. A failed download is reported on its row and never undoes
+  the product.
+- A product whose image already came from the same URL is `unchanged` and is not downloaded again,
+  so re-importing a file is cheap. An empty `image_url` leaves the current image alone: an import
+  never removes images. A dry run validates the image columns but downloads nothing.
 - The same use case runs from the UI, the API and the CLI (`ecommerce import-products file.csv`).
 
 ## Product images
@@ -543,7 +700,7 @@ storage.
 flowchart LR
     A["Admin drops a file"] --> B["Browser: type and size check,<br/>downscale above 2560 px, preview"]
     B -->|"PUT /products/{id}/image<br/>multipart + If-Match, progress bar"| C["API: size limit,<br/>format from magic bytes"]
-    U["Admin pastes a URL,<br/>or the seed manifest"] -->|"PUT /products/{id}/image/from-url"| R["SSRF safe fetcher:<br/>https, public IPs, size and time limits"]
+    U["Admin pastes a URL,<br/>or a CSV image_url column"] -->|"PUT /products/{id}/image/from-url"| R["SSRF safe fetcher:<br/>https, public IPs, size and time limits"]
     R --> C
     C --> D["Pillow in a worker thread:<br/>EXIF orientation, sRGB, strip metadata"]
     D --> E["5 widths x AVIF + WebP<br/>+ 24 px blur placeholder"]
@@ -605,6 +762,17 @@ through an egress proxy, closes it, and is listed as a next step.
 `APP_IMAGE_FETCH_ALLOW_HTTP` and `APP_IMAGE_FETCH_ALLOW_PRIVATE_NETWORKS` exist only for local
 development and tests (for example a MinIO bucket on `localhost`).
 
+Remote hosts fail in ordinary ways too, so transient failures are retried: `429`, `502`, `503`,
+`504` and network errors get up to 3 attempts in total. A `Retry-After` header is honoured, otherwise
+the wait doubles (1 s, 2 s). If a host asks for a longer wait than
+`APP_IMAGE_FETCH_MAX_RETRY_WAIT_SECONDS`, the download fails at once instead of blocking the import.
+Other errors (`404`, not an image, too large, blocked address) are never retried.
+
+Requests identify themselves with `APP_IMAGE_FETCH_USER_AGENT`. Some hosts require contact details
+in it: Wikimedia Commons, for example, answers `429` to generic agents. When importing from such a
+host, set it to something like `ShopName/1.0 (https://shop.example; ops@shop.example)`. This is
+also why the sample photos avoid Wikimedia: seeding works without any configuration.
+
 ### Loading and showing
 
 - The API returns `image: {url, width, height, placeholder, sources}`. `sources` holds an AVIF
@@ -638,29 +806,29 @@ implement the same `ObjectStorage` port and are selected in the composition root
 
 ### Sample photos
 
-The repository contains **no image binaries**. Instead,
-[`data/product-images.csv`](data/product-images.csv) (about 19 KB) lists one openly licensed photo
-per sample product:
+The repository contains **no image binaries**.
+[`data/products-sample-images.csv`](data/products-sample-images.csv) is the provided sample file
+with five columns appended to every line. The original text of each line is untouched, so line
+numbers, quoting and every data quality problem stay exactly the same:
 
 ```text
-sku,image_url,author,license,license_url,source_url
+name,sku,description,category,price,stock,weight_kg,image_url,image_author,image_license,image_license_url,image_source_url
 ```
 
 The 83 photos were found through the Openverse catalog and are CC0, public domain, CC BY or CC
-BY-SA, hosted on Flickr, rawpixel, StockSnap and Wikimedia Commons. `make seed` runs
-`ecommerce import-images /data/product-images.csv`, which calls the URL import use case for each
-row with up to 4 downloads in parallel:
+BY-SA, hosted on Flickr, rawpixel, StockSnap and the WordPress photo directory. Rows that fail validation and
+blank rows have empty image columns. Superseded duplicates carry the same photo as the row that
+wins, so duplicate handling is unchanged.
 
-- rows whose SKU does not exist are reported as `not_found`;
-- a product that already has an image from the same URL is `unchanged`, so seeding is idempotent
-  and does not download anything the second time;
-- a failed download (offline, removed photo) is reported and the product keeps its placeholder.
-  The command still succeeds, unless `--strict` is passed, which turns any failure into exit code 1.
+`make seed` runs `ecommerce import-products /data/products-sample-images.csv`: the products first,
+in one transaction, then the photos. Running it again reports 83 unchanged products and 83
+unchanged images, and downloads nothing. A failed download (offline, removed photo) is reported on
+its row and the product keeps its placeholder.
 
-Committing the photos made seeding work offline, but it put about 8.6 MB of binaries in git history
-forever, and every replaced photo would add more. The manifest keeps the repository small, keeps
-licensing data reviewable in a diff, and exercises the same code path an admin uses to import from
-a URL.
+One file keeps each product and its photo on the same line, needs one command and gives one
+report, and it is the same format an admin can upload on the Import page. Committing the photos
+instead made seeding work offline, but put about 8.6 MB of binaries in git history forever, and
+every replaced photo would add more.
 
 ## Frontend
 
@@ -704,10 +872,10 @@ the browser talks to one origin and the Content Security Policy can stay strict.
 
 | Suite | Count | What it covers |
 |-------|-------|----------------|
-| Backend unit | 216 | Domain rules (including the SQL payload rule), use cases with in-memory adapters, CSV parsing (including the full sample file), image processing (orientation, metadata, alpha, bombs, truncated and fake files), SSRF protections of the URL fetcher (private addresses, redirects, limits) with a mock transport, local and S3 storage (moto), payment simulation, retries, logging |
-| Backend integration | 32 | Real PostgreSQL via Testcontainers: repositories, optimistic locking, constraints, migrations against the models, search, concurrent checkout, imports, image metadata and credits, CLI seeding from a manifest served by a local HTTP server |
-| Backend API | 47 | HTTP behaviour end to end: status codes, headers, problem details, ETags, idempotency, CSV and image uploads, URL imports, media serving, limits |
-| Frontend | 45 | Utilities, cart store, card helpers, Zod schemas, HTTP client and upload progress, theme store, responsive image and photo credit components, ProductForm behaviour |
+| Backend unit | 225 | Domain rules (including the SQL payload rule), use cases with in-memory adapters, CSV parsing (including the full sample file), image processing (orientation, metadata, alpha, bombs, truncated and fake files), SSRF protections and retries of the URL fetcher (private addresses, redirects, limits, `Retry-After`) with a mock transport, local and S3 storage (moto), payment simulation, retries, logging |
+| Backend integration | 31 | Real PostgreSQL via Testcontainers: repositories, optimistic locking, constraints, migrations against the models, search, concurrent checkout, imports, image metadata and credits, CLI imports whose image columns point at a local HTTP server |
+| Backend API | 48 | HTTP behaviour end to end: status codes, headers, problem details, ETags, idempotency, CSV imports with images, image uploads, URL imports, media serving, limits |
+| Frontend | 47 | Utilities, cart store, card helpers, Zod schemas, HTTP client and upload progress, theme store, responsive image, photo credit and import results components, ProductForm behaviour |
 
 Backend gates: Ruff (lint and format), `mypy --strict`, `import-linter` architecture contracts and a
 90% coverage threshold (currently 97%). Frontend gates: ESLint with type aware rules, Prettier,
@@ -755,6 +923,8 @@ Backend settings are environment variables with the `APP_` prefix
 | `APP_IMAGE_MAX_BYTES` / `APP_IMAGE_MAX_PIXELS` / `APP_IMAGE_PROCESSING_CONCURRENCY` | `10485760` / `40000000` / `2` | Upload and download limits and parallel encoders |
 | `APP_IMAGE_FETCH_TIMEOUT_SECONDS` / `APP_IMAGE_FETCH_ALLOWED_HOSTS` | `15` / empty (any public host) | URL import timeout and a comma separated host allow list, subdomains included |
 | `APP_IMAGE_FETCH_ALLOW_HTTP` / `APP_IMAGE_FETCH_ALLOW_PRIVATE_NETWORKS` | `false` / `false` | Development only switches for plain http and local or private hosts |
+| `APP_IMAGE_FETCH_MAX_ATTEMPTS` / `APP_IMAGE_FETCH_MAX_RETRY_WAIT_SECONDS` | `3` / `10` | Retries for `429`, `5xx` gateway errors and network failures |
+| `APP_IMAGE_FETCH_USER_AGENT` | `EcommercePlatform/1.0 (product image import)` | User agent for image downloads, add contact details for hosts that require them |
 
 Compose reads `POSTGRES_PASSWORD` (required), `POSTGRES_USER`, `POSTGRES_DB`, `POSTGRES_PORT`,
 `API_PORT` and `WEB_PORT` from the root `.env` ([`.env.example`](.env.example)).
@@ -784,7 +954,7 @@ Compose reads `POSTGRES_PASSWORD` (required), `POSTGRES_USER`, `POSTGRES_DB`, `P
 | Image upload path | Multipart upload through the API | Presigned direct-to-S3 uploads: no upload traffic on the API, best for large or very frequent files, but needs storage CORS and an asynchronous finalize step. The next step at scale |
 | Image processing | Renditions generated once at upload | On the fly image service (imgproxy, Thumbor, Cloudinary, Imgix) behind a CDN: any size on demand, but another service or vendor to run and pay for |
 | Image storage | Object storage, metadata in a `JSONB` column | Images in PostgreSQL `BYTEA`: simple, but bloats the database and backups and cannot sit behind a CDN. A `product_images` table: needed for galleries, more than one optional image needs |
-| Sample photos | URL manifest, downloaded and processed by the seed job | Commit the binaries: works offline, but 8.6 MB of history that never shrinks. Git LFS: smaller clones, but needs LFS on every machine and in CI. Hotlink the remote URLs in `<img>`: zero storage, but no AVIF or sizes, a looser CSP, third party tracking and broken images when the source changes. An image proxy (imgproxy) in front of remote URLs: on demand sizes, but another service and the same availability risk |
+| Sample photos | Image URL columns in a copy of the sample CSV, downloaded and processed on import | A separate image manifest: two files to keep in sync, two commands and two reports. Commit the binaries: works offline, but 8.6 MB of history that never shrinks. Git LFS: smaller clones, but needs LFS on every machine and in CI. Hotlink the remote URLs in `<img>`: zero storage, but no AVIF or sizes, a looser CSP, third party tracking and broken images when the source changes. An image proxy (imgproxy) in front of remote URLs: on demand sizes, but another service and the same availability risk |
 | Invalid product text | Reject markup and SQL payload shapes in the domain | Accept anything, since parameterized SQL is safe: correct for security, but stores junk. Escape or strip silently: changes data without telling the user. A WAF: protects the edge, not CSV imports or other writers |
 | Image formats | AVIF with WebP fallback | Adding JPEG: every current browser supports WebP, so it would only add storage |
 | Image placeholder | Inline 24 px WebP data URI | BlurHash or ThumbHash: smaller strings, but they need JavaScript to decode. A dominant color: cheaper, less pleasant |
@@ -798,7 +968,9 @@ Compose reads `POSTGRES_PASSWORD` (required), `POSTGRES_USER`, `POSTGRES_DB`, `P
 - **Stuck reservations:** if the process dies between reserving stock and settling the payment, the
   order stays `pending_payment`. A scheduled job should expire old pending orders and release their
   stock. With a real provider, payment webhooks and an outbox table would make this reliable.
-- **Background imports** with progress reporting for files larger than the synchronous limit.
+- **Background imports** with progress reporting for files larger than the synchronous limit and
+  for files with many image URLs. Today the request waits for the downloads, and nginx allows 5
+  minutes on the import endpoint.
 - **Observability:** OpenTelemetry traces and Prometheus metrics on top of the existing request ids
   and JSON logs.
 - **Catalog features:** image galleries and editable alt text, discounts and promotions, multi
