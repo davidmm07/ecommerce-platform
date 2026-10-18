@@ -2,10 +2,13 @@ import { getJson } from '@/shared/api/http';
 
 export type RowOutcome = 'created' | 'updated' | 'unchanged' | 'skipped' | 'failed';
 
+export type ImageOutcome = 'attached' | 'unchanged' | 'failed';
+
 export type ImportRow = {
   line: number;
   sku: string | null;
   outcome: RowOutcome;
+  image: ImageOutcome | null;
   messages: string[];
 };
 
@@ -18,6 +21,7 @@ export type ImportReport = {
     unchanged: number;
     skipped: number;
     failed: number;
+    images: Record<ImageOutcome, number>;
   };
   rows: ImportRow[];
 };

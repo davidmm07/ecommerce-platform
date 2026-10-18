@@ -3,13 +3,19 @@ import { useMemo, useState } from 'react';
 import { cn } from '@/shared/lib/cn';
 import { Badge, Card, StatTile } from '@/shared/ui/display';
 
-import type { ImportReport, RowOutcome } from '../api';
+import type { ImageOutcome, ImportReport, RowOutcome } from '../api';
 
 const OUTCOME_TONE: Record<RowOutcome, 'success' | 'info' | 'neutral' | 'warning' | 'danger'> = {
   created: 'success',
   updated: 'info',
   unchanged: 'neutral',
   skipped: 'warning',
+  failed: 'danger',
+};
+
+const IMAGE_TONE: Record<ImageOutcome, 'success' | 'neutral' | 'danger'> = {
+  attached: 'success',
+  unchanged: 'neutral',
   failed: 'danger',
 };
 
@@ -37,12 +43,14 @@ export function ImportResults({ report }: { report: ImportReport }) {
     [report.rows, filter],
   );
   const { summary } = report;
+  const hasImages = report.rows.some((row) => row.image !== null);
 
   return (
     <section className="space-y-4" aria-label="Import results">
       {report.dry_run && (
         <p className="rounded-lg bg-accent-soft px-4 py-3 text-sm text-accent-soft-fg ring-1 ring-accent/20">
-          Dry run: nothing was saved. Upload again without "Validate only" to apply these changes.
+          Dry run: nothing was saved and no image was downloaded. Upload again without "Validate
+          only" to apply these changes.
         </p>
       )}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -53,6 +61,13 @@ export function ImportResults({ report }: { report: ImportReport }) {
         <StatTile label="Skipped" value={summary.skipped} tone="warning" />
         <StatTile label="Failed" value={summary.failed} tone="danger" />
       </div>
+      {hasImages && (
+        <div className="grid grid-cols-3 gap-3 lg:grid-cols-6">
+          <StatTile label="Images attached" value={summary.images.attached} tone="success" />
+          <StatTile label="Images unchanged" value={summary.images.unchanged} />
+          <StatTile label="Images failed" value={summary.images.failed} tone="danger" />
+        </div>
+      )}
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filter rows">
         {FILTERS.map((option) => (
           <button
@@ -85,6 +100,11 @@ export function ImportResults({ report }: { report: ImportReport }) {
               <th scope="col" className="w-32 px-4 py-3">
                 Outcome
               </th>
+              {hasImages && (
+                <th scope="col" className="w-32 px-4 py-3">
+                  Image
+                </th>
+              )}
               <th scope="col" className="px-4 py-3">
                 Details
               </th>
@@ -93,7 +113,7 @@ export function ImportResults({ report }: { report: ImportReport }) {
           <tbody className="divide-y divide-line-soft">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-fg-muted">
+                <td colSpan={hasImages ? 5 : 4} className="px-4 py-8 text-center text-fg-muted">
                   No rows in this view.
                 </td>
               </tr>
@@ -107,6 +127,17 @@ export function ImportResults({ report }: { report: ImportReport }) {
                       {row.outcome}
                     </Badge>
                   </td>
+                  {hasImages && (
+                    <td className="px-4 py-3">
+                      {row.image ? (
+                        <Badge tone={IMAGE_TONE[row.image]} className="capitalize">
+                          {row.image}
+                        </Badge>
+                      ) : (
+                        <span className="text-fg-subtle">-</span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-fg-secondary">
                     {row.messages.length > 0 ? (
                       <ul className="list-inside list-disc space-y-0.5">

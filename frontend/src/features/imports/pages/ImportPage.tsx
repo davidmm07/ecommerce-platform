@@ -13,6 +13,13 @@ import { MAX_IMPORT_BYTES, importsApi } from '../api';
 import { ImportResults } from '../components/ImportResults';
 
 const COLUMNS = ['name', 'sku', 'description', 'category', 'price', 'stock', 'weight_kg'];
+const IMAGE_COLUMNS = [
+  'image_url',
+  'image_author',
+  'image_license',
+  'image_license_url',
+  'image_source_url',
+];
 
 export function ImportPage() {
   const inputId = useId();
@@ -29,11 +36,12 @@ export function ImportPage() {
       if (!report.dry_run) {
         void queryClient.invalidateQueries({ queryKey: productKeys.all });
       }
-      const { created, updated, failed } = report.summary;
+      const { created, updated, failed, images } = report.summary;
+      const imageNote = images.attached + images.failed > 0 ? `, ${images.attached} images` : '';
       toast.success(
         report.dry_run
           ? `Validated ${report.summary.total_rows} rows`
-          : `Imported: ${created} created, ${updated} updated, ${failed} failed`,
+          : `Imported: ${created} created, ${updated} updated, ${failed} failed${imageNote}`,
       );
     },
   });
@@ -127,6 +135,12 @@ export function ImportPage() {
               {dryRun ? 'Validate file' : 'Import products'}
             </Button>
           </div>
+          {upload.isPending && upload.variables.validateOnly === false && (
+            <p className="text-sm text-fg-muted" role="status">
+              Saving products, then downloading and optimizing their images. Large files can take a
+              minute.
+            </p>
+          )}
           {(localError || upload.isError) && (
             <ErrorState message={localError ?? describeError(upload.error)} />
           )}
@@ -137,12 +151,20 @@ export function ImportPage() {
           <code className="block break-all rounded-lg bg-slate-900 p-3 font-mono text-xs leading-relaxed text-slate-100 dark:bg-slate-950 dark:ring-1 dark:ring-line">
             {COLUMNS.join(',')}
           </code>
+          <p>Optional image columns:</p>
+          <code className="block break-all rounded-lg bg-slate-900 p-3 font-mono text-xs leading-relaxed text-slate-100 dark:bg-slate-950 dark:ring-1 dark:ring-line">
+            {IMAGE_COLUMNS.join(',')}
+          </code>
           <ul className="list-inside list-disc space-y-1">
             <li>Existing SKUs are updated, new ones are created.</li>
             <li>Price needs up to 2 decimals and must be above 0, a leading $ is accepted.</li>
             <li>Stock is a whole number of units, weight is in kilograms.</li>
             <li>If a SKU repeats, the last row wins and earlier ones are reported.</li>
             <li>Invalid rows are reported and skipped, valid rows are saved together.</li>
+            <li>
+              An image_url is downloaded after the products are saved. A failed download is reported
+              and the product keeps its current image.
+            </li>
           </ul>
         </Card>
       </div>
