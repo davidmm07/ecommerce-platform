@@ -74,10 +74,7 @@ services:
     image: ecommerce-platform-api:local
     pull_policy: never
     profiles: ["seed"]
-    command:
-      - sh
-      - -c
-      - ecommerce import-products /data/products-sample.csv && ecommerce import-images /data/product-images.csv
+    command: ["ecommerce", "import-products", "/data/products-sample-images.csv"]
     environment: *api-environment
     volumes:
       - ./data:/data:ro
