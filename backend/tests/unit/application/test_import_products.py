@@ -2,23 +2,65 @@ from uuid import uuid4
 
 import pytest
 
-from ecommerce.application.errors import ImportLimitExceeded, InvalidImportFile
+from ecommerce.application.catalog.images import (
+    ImageImportOutcome,
+    ImportProductImageFromUrl,
+    ImportProductImages,
+    ReplaceProductImage,
+)
+from ecommerce.application.errors import (
+    ImageSourceUnavailable,
+    ImportLimitExceeded,
+    InvalidImportFile,
+)
 from ecommerce.application.imports.report import ImportReport, RowOutcome
 from ecommerce.application.imports.row_parser import parse_decimal, parse_integer
 from ecommerce.application.imports.use_case import ImportProducts
 from ecommerce.domain.errors import InvalidValue
 from ecommerce.infrastructure.files.csv_reader import CsvProductTableReader
-from tests.conftest import SAMPLE_CSV
+from tests.conftest import SAMPLE_CSV, SAMPLE_IMAGES_CSV
 from tests.factories import FixedClock, make_product
-from tests.fakes import InMemoryDatabase, InMemoryUnitOfWork
+from tests.fakes import (
+    FakeImageFetcher,
+    FakeImageProcessor,
+    InMemoryDatabase,
+    InMemoryObjectStorage,
+    InMemoryUnitOfWork,
+)
 
 HEADER = "name,sku,description,category,price,stock,weight_kg\n"
+IMAGE_HEADER = (
+    "name,sku,description,category,price,stock,weight_kg,"
+    "image_url,image_author,image_license,image_license_url,image_source_url\n"
+)
 
 
-def importer(database: InMemoryDatabase, *, max_rows: int = 100) -> ImportProducts:
+def importer(
+    database: InMemoryDatabase,
+    *,
+    max_rows: int = 100,
+    fetcher: FakeImageFetcher | None = None,
+) -> ImportProducts:
+    def uow_factory() -> InMemoryUnitOfWork:
+        return InMemoryUnitOfWork(database)
+
+    replace_image = ReplaceProductImage(
+        uow_factory=uow_factory,
+        processor=FakeImageProcessor(),
+        storage=InMemoryObjectStorage(),
+        clock=FixedClock(),
+        max_bytes=1024,
+    )
+    images = ImportProductImages(
+        uow_factory=uow_factory,
+        import_from_url=ImportProductImageFromUrl(
+            fetcher=fetcher or FakeImageFetcher(), replace_image=replace_image
+        ),
+    )
     return ImportProducts(
-        uow_factory=lambda: InMemoryUnitOfWork(database),
+        uow_factory=uow_factory,
         reader=CsvProductTableReader(),
+        images=images,
         clock=FixedClock(),
         new_id=uuid4,
         max_rows=max_rows,
@@ -181,3 +223,107 @@ def test_number_parsers() -> None:
         parse_decimal("1e3")
     with pytest.raises(InvalidValue, match=r"\.\.\.' is not a whole number"):
         parse_integer("9" * 50 + "x")
+
+
+async def test_imports_the_sample_file_with_image_columns() -> None:
+    database = InMemoryDatabase()
+    fetcher = FakeImageFetcher()
+    plain = await importer(InMemoryDatabase()).execute(SAMPLE_CSV.read_bytes())
+    report = await importer(database, fetcher=fetcher).execute(SAMPLE_IMAGES_CSV.read_bytes())
+
+    assert report.summary == plain.summary
+    assert [row.messages for row in report.rows] == [row.messages for row in plain.rows]
+    assert report.image_summary == {
+        ImageImportOutcome.ATTACHED: 83,
+        ImageImportOutcome.UNCHANGED: 0,
+        ImageImportOutcome.FAILED: 0,
+    }
+    assert len(fetcher.requested) == 83
+    products = list(database.products.values())
+    assert all(product.image is not None for product in products)
+    shoes = next(product for product in products if product.sku.value == "RS-001")
+    assert shoes.image is not None
+    assert shoes.image.credit is not None
+    assert shoes.image.origin_url == next(
+        row.get("image_url")
+        for row in CsvProductTableReader().read(SAMPLE_IMAGES_CSV.read_bytes()).rows
+        if row.line == 36
+    )
+
+    again = await importer(database, fetcher=fetcher).execute(SAMPLE_IMAGES_CSV.read_bytes())
+    assert again.summary[RowOutcome.UNCHANGED] == 83
+    assert again.image_summary[ImageImportOutcome.UNCHANGED] == 83
+    assert len(fetcher.requested) == 83
+
+
+async def test_image_downloads_never_undo_saved_products() -> None:
+    database = InMemoryDatabase()
+    fetcher = FakeImageFetcher(
+        {"https://img.example.com/gone.jpg": ImageSourceUnavailable("The image URL answered 404")}
+    )
+    body = (
+        IMAGE_HEADER + "Mat,YM-001,,Sports,10.00,1,1,https://img.example.com/mat.jpg,"
+        "Jane Doe,CC BY 2.0,,https://example.com/mat\n"
+        + "Cup,CU-001,,Kitchen,5.00,1,0.2,https://img.example.com/gone.jpg,,,,\n"
+        + "Pen,PN-001,,Stationery,2.00,1,0.1,,,,,\n"
+    )
+    report = await importer(database, fetcher=fetcher).execute(body.encode())
+
+    assert [(row.outcome, row.image, row.messages) for row in report.rows] == [
+        (RowOutcome.CREATED, ImageImportOutcome.ATTACHED, ()),
+        (RowOutcome.CREATED, ImageImportOutcome.FAILED, ("image: The image URL answered 404",)),
+        (RowOutcome.CREATED, None, ()),
+    ]
+    assert len(database.products) == 3
+
+
+async def test_validates_image_columns_with_the_row() -> None:
+    database = InMemoryDatabase()
+    fetcher = FakeImageFetcher()
+    body = (
+        IMAGE_HEADER
+        + "Mat,YM-001,,Sports,10.00,1,1,ftp://img.example.com/mat.jpg,,,,\n"
+        + "Cup,CU-001,,Kitchen,5.00,1,0.2,,Jane Doe,,,\n"
+        + "Pen,PN-001,,Stationery,2.00,1,0.1,https://img.example.com/pen.jpg,"
+        "Jane Doe,,,javascript:alert(1)\n"
+    )
+    report = await importer(database, fetcher=fetcher).execute(body.encode())
+
+    assert [(row.outcome, row.messages) for row in report.rows] == [
+        (RowOutcome.FAILED, ("image_url: must be an http or https URL",)),
+        (RowOutcome.FAILED, ("image_url: is required when a photo credit is given",)),
+        (
+            RowOutcome.FAILED,
+            (
+                "image_license: is required",
+                "image_source_url: must be an http or https URL",
+            ),
+        ),
+    ]
+    assert database.products == {}
+    assert fetcher.requested == []
+
+
+async def test_dry_runs_validate_image_columns_without_downloading() -> None:
+    database = InMemoryDatabase()
+    fetcher = FakeImageFetcher()
+    body = IMAGE_HEADER + "Mat,YM-001,,Sports,10.00,1,1,https://img.example.com/mat.jpg,,,,\n"
+    report = await importer(database, fetcher=fetcher).execute(body.encode(), dry_run=True)
+
+    assert (report.rows[0].outcome, report.rows[0].image) == (RowOutcome.CREATED, None)
+    assert fetcher.requested == []
+
+
+async def test_a_different_image_makes_a_repeated_row_a_new_version() -> None:
+    body = (
+        IMAGE_HEADER
+        + "Mat,YM-001,,Sports,10.00,1,1,https://img.example.com/a.jpg,,,,\n"
+        + "Mat,YM-001,,Sports,10.00,1,1,https://img.example.com/b.jpg,,,,\n"
+        + "Mat,YM-001,,Sports,10.00,1,1,https://img.example.com/b.jpg,,,,\n"
+    )
+    report = await importer(InMemoryDatabase()).execute(body.encode())
+    assert outcomes(report) == {
+        2: (RowOutcome.SKIPPED, ("superseded by line 3, which has the same SKU",)),
+        3: (RowOutcome.CREATED, ()),
+        4: (RowOutcome.SKIPPED, ("exact duplicate of line 3",)),
+    }

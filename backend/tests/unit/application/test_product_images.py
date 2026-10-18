@@ -271,10 +271,11 @@ async def test_bulk_import_reports_each_source(
 
     assert [(r.sku, r.outcome) for r in first] == [
         ("RS-001", ImageImportOutcome.ATTACHED),
-        ("NOPE-404", ImageImportOutcome.NOT_FOUND),
+        ("NOPE-404", ImageImportOutcome.FAILED),
         ("bad sku!", ImageImportOutcome.FAILED),
         ("BS-021", ImageImportOutcome.FAILED),
     ]
+    assert first[1].message == "no active product"
     assert first[3].message == "answered 404"
     assert second[0].outcome is ImageImportOutcome.UNCHANGED
     assert fetcher.requested.count("https://img.example.com/shoes.jpg") == 1

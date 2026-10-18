@@ -153,7 +153,6 @@ class ImportProductImageFromUrl:
 class ImageImportOutcome(StrEnum):
     ATTACHED = "attached"
     UNCHANGED = "unchanged"
-    NOT_FOUND = "not_found"
     FAILED = "failed"
 
 
@@ -198,9 +197,7 @@ class ImportProductImages:
             async with self._uow_factory() as uow:
                 product = await uow.products.get_by_sku(sku)
             if product is None:
-                return ImageImportResult(
-                    source.sku, ImageImportOutcome.NOT_FOUND, "no active product"
-                )
+                return ImageImportResult(source.sku, ImageImportOutcome.FAILED, "no active product")
             if product.image is not None and product.image.origin_url == source.url.strip():
                 return ImageImportResult(sku.value, ImageImportOutcome.UNCHANGED)
             await self._import_from_url.execute(

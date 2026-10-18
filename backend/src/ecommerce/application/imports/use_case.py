@@ -1,3 +1,6 @@
+from collections.abc import Collection
+
+from ecommerce.application.catalog.images import ImportProductImages
 from ecommerce.application.errors import ImportLimitExceeded, InvalidImportFile
 from ecommerce.application.imports.report import ImportReport, ImportReportBuilder, RowOutcome
 from ecommerce.application.imports.row_parser import (
@@ -19,12 +22,14 @@ class ImportProducts:
         *,
         uow_factory: UnitOfWorkFactory,
         reader: ProductTableReader,
+        images: ImportProductImages,
         clock: Clock,
         new_id: IdFactory,
         max_rows: int,
     ) -> None:
         self._uow_factory = uow_factory
         self._reader = reader
+        self._images = images
         self._clock = clock
         self._new_id = new_id
         self._max_rows = max_rows
@@ -35,6 +40,8 @@ class ImportProducts:
         report = ImportReportBuilder(dry_run)
         drafts = self._collect_drafts(table, report)
         await self._apply(drafts, report, dry_run=dry_run)
+        if not dry_run:
+            await self._attach_images(drafts.values(), report)
         return report.build()
 
     def _check_shape(self, table: ProductTable) -> None:
@@ -67,7 +74,7 @@ class ImportProducts:
                 report.record(row.line, raw_sku, RowOutcome.FAILED, *messages)
                 continue
             previous = drafts.pop(draft.sku, None)
-            if previous is not None and previous.details == draft.details:
+            if previous is not None and previous.same_content(draft):
                 drafts[draft.sku] = previous
                 report.record(
                     row.line,
@@ -110,3 +117,11 @@ class ImportProducts:
                 report.record(draft.line, sku.value, outcome, *draft.notes)
             if not dry_run:
                 await uow.commit()
+
+    async def _attach_images(
+        self, drafts: Collection[ProductDraft], report: ImportReportBuilder
+    ) -> None:
+        pending = [(draft.line, draft.image) for draft in drafts if draft.image is not None]
+        results = await self._images.execute([source for _, source in pending])
+        for (line, _), result in zip(pending, results, strict=True):
+            report.record_image(line, result.outcome, result.message)

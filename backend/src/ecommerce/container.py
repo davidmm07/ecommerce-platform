@@ -93,13 +93,6 @@ class Container:
         self.search_products = SearchProducts(
             catalog=SqlAlchemyCatalogReadModel(self._session_factory)
         )
-        self.import_products = ImportProducts(
-            uow_factory=uow_factory,
-            reader=CsvProductTableReader(),
-            clock=self.clock,
-            new_id=uuid4,
-            max_rows=settings.import_max_rows,
-        )
         self.replace_product_image = ReplaceProductImage(
             uow_factory=uow_factory,
             processor=self.image_processor,
@@ -113,8 +106,15 @@ class Container:
         self.import_product_image_from_url = ImportProductImageFromUrl(
             fetcher=self.image_fetcher, replace_image=self.replace_product_image
         )
-        self.import_product_images = ImportProductImages(
-            uow_factory=uow_factory, import_from_url=self.import_product_image_from_url
+        self.import_products = ImportProducts(
+            uow_factory=uow_factory,
+            reader=CsvProductTableReader(),
+            images=ImportProductImages(
+                uow_factory=uow_factory, import_from_url=self.import_product_image_from_url
+            ),
+            clock=self.clock,
+            new_id=uuid4,
+            max_rows=settings.import_max_rows,
         )
         self.quote_cart = QuoteCart(uow_factory=uow_factory, shipping_policy=self.shipping_policy)
         self.place_order = PlaceOrder(

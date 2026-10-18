@@ -19,10 +19,36 @@ async def test_imports_the_sample_file(client: AsyncClient) -> None:
         "unchanged": 0,
         "skipped": 5,
         "failed": 9,
+        "images": {"attached": 0, "unchanged": 0, "failed": 0},
     }
     failed = {row["sku"]: row["messages"] for row in report["rows"] if row["outcome"] == "failed"}
     assert failed["YM-015"] == ["price: 'free' is not a valid decimal number"]
     assert (await client.get("/api/v1/products", params={"page_size": 1})).json()["total"] == 83
+
+
+async def test_downloads_images_from_the_optional_image_columns(client: AsyncClient) -> None:
+    content = (
+        "name,sku,description,category,price,stock,weight_kg,"
+        "image_url,image_author,image_license,image_license_url,image_source_url\n"
+        "Desk Lamp,DL-001,,Home & Office,39.99,5,1.2,https://images.example.com/lamp.jpg,"
+        "Jane Doe,CC BY 2.0,https://creativecommons.org/licenses/by/2.0/,"
+        "https://www.flickr.com/photos/example/1\n"
+        "Floor Lamp,FL-001,,Home & Office,79.99,5,4.5,https://images.example.com/missing.jpg,,,,\n"
+    )
+    files = {"file": ("products.csv", content.encode(), "text/csv")}
+    response = await client.post(IMPORTS, files=files)
+
+    report = response.json()
+    assert report["summary"]["created"] == 2
+    assert report["summary"]["images"] == {"attached": 1, "unchanged": 0, "failed": 1}
+    assert [(row["sku"], row["image"], row["messages"]) for row in report["rows"]] == [
+        ("DL-001", "attached", []),
+        ("FL-001", "failed", ["image: The image URL answered 404"]),
+    ]
+    listed = (await client.get("/api/v1/products", params={"sort": "name"})).json()["items"]
+    lamp = next(item for item in listed if item["sku"] == "DL-001")
+    assert lamp["image"]["credit"]["author"] == "Jane Doe"
+    assert next(item for item in listed if item["sku"] == "FL-001")["image"] is None
 
 
 async def test_dry_run_does_not_persist(client: AsyncClient) -> None:

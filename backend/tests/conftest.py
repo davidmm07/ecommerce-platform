@@ -17,6 +17,7 @@ from tests.images import jpeg_bytes
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 SAMPLE_CSV = BACKEND_DIR.parent / "data" / "products-sample.csv"
+SAMPLE_IMAGES_CSV = BACKEND_DIR.parent / "data" / "products-sample-images.csv"
 POSTGRES_IMAGE = "postgres:17-alpine"
 
 

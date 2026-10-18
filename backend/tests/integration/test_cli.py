@@ -52,13 +52,16 @@ def image_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     server.server_close()
 
 
-def write_manifest(path: Path, rows: list[str]) -> Path:
-    header = "sku,image_url,author,license,license_url,source_url"
+def write_products(path: Path, rows: list[str]) -> Path:
+    header = (
+        "name,sku,description,category,price,stock,weight_kg,"
+        "image_url,image_author,image_license,image_license_url,image_source_url"
+    )
     path.write_text("\n".join([header, *rows]) + "\n")
     return path
 
 
-def test_import_images_downloads_sources_from_a_manifest(
+def test_import_products_downloads_images_from_image_columns(
     cli_env: None,
     image_server: str,
     tmp_path: Path,
@@ -68,49 +71,41 @@ def test_import_images_downloads_sources_from_a_manifest(
 ) -> None:
     monkeypatch.setenv("APP_IMAGE_FETCH_ALLOW_HTTP", "true")
     monkeypatch.setenv("APP_IMAGE_FETCH_ALLOW_PRIVATE_NETWORKS", "true")
-    assert main(["import-products", str(SAMPLE_CSV)]) == 0
-    capsys.readouterr()
-    manifest = write_manifest(
-        tmp_path / "images.csv",
+    products = write_products(
+        tmp_path / "products.csv",
         [
-            f"RS-001,{image_server}/shoes.jpg,Jane Doe,CC BY 2.0,,https://example.com/shoes",
-            f"bs-021,{image_server}/speaker.png,,,,",
-            f"NOPE-999,{image_server}/shoes.jpg,,,,",
-            f"TM-029,{image_server}/notes.txt,,,,",
+            f"Running Shoes,RS-001,,Footwear,89.99,10,0.35,{image_server}/shoes.jpg,"
+            "Jane Doe,CC BY 2.0,,https://example.com/shoes",
+            f"Speaker,BS-021,,Electronics,59.99,5,0.8,{image_server}/speaker.png,,,,",
+            f"Notebook,TM-029,,Stationery,4.99,50,0.2,{image_server}/notes.txt,,,,",
+            "Mug,MG-001,,Kitchen,9.99,20,0.3,,,,,",
         ],
     )
 
-    assert main(["import-images", str(manifest)]) == 0
+    assert main(["import-products", str(products)]) == 0
     first = json.loads(capsys.readouterr().out)
-    assert main(["import-images", str(manifest), "--strict"]) == 1
+    assert main(["import-products", str(products)]) == 0
     second = json.loads(capsys.readouterr().out)
 
-    assert (first["total"], first["attached"], first["not_found"], first["failed"]) == (
+    assert (first["created"], first["images"]) == (
         4,
-        2,
-        1,
-        1,
+        {"attached": 2, "unchanged": 0, "failed": 1},
     )
-    assert (second["attached"], second["unchanged"]) == (0, 2)
+    [issue] = first["issues"]
+    assert (issue["sku"], issue["outcome"], issue["image"]) == ("TM-029", "created", "failed")
+    assert (second["unchanged"], second["images"]["unchanged"]) == (4, 2)
     assert any((media_root / "products").rglob("*-640.avif"))
 
 
-def test_import_images_blocks_private_addresses_by_default(
+def test_import_products_blocks_private_image_addresses_by_default(
     cli_env: None, image_server: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["import-products", str(SAMPLE_CSV)]) == 0
-    capsys.readouterr()
-    manifest = write_manifest(tmp_path / "images.csv", [f"RS-001,{image_server}/shoes.jpg,,,,"])
-    assert main(["import-images", str(manifest)]) == 0
-    [issue] = json.loads(capsys.readouterr().out)["issues"]
-    assert issue["message"] == "The image URL must use https"
-
-
-def test_import_images_rejects_unusable_manifests(
-    cli_env: None, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    broken = tmp_path / "broken.csv"
-    broken.write_text("sku,url\nRS-001,https://example.com/a.jpg\n")
-    assert main(["import-images", str(broken)]) == 1
-    assert main(["import-images", str(tmp_path / "missing.csv")]) == 1
-    assert "import failed" in capsys.readouterr().err
+    products = write_products(
+        tmp_path / "products.csv",
+        [f"Running Shoes,RS-001,,Footwear,89.99,10,0.35,{image_server}/shoes.jpg,,,,"],
+    )
+    assert main(["import-products", str(products)]) == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["created"] == 1
+    [issue] = summary["issues"]
+    assert issue["messages"] == ["image: The image URL must use https"]

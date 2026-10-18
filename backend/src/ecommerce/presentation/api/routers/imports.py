@@ -22,7 +22,10 @@ _ACCEPTED_TYPES = {
     summary="Import products from a CSV file",
     description=(
         "Creates or updates products by SKU. Valid rows are applied in one transaction, "
-        "invalid rows are reported with the reason. Use dry_run to validate without saving."
+        "invalid rows are reported with the reason. When the optional image_url column is "
+        "filled, the image is downloaded and processed after the products are saved, and a "
+        "failed download is reported without undoing the product. Use dry_run to validate "
+        "without saving or downloading."
     ),
     responses=problem_responses(413, 415, 422),
 )
@@ -31,8 +34,9 @@ async def import_products(
     file: Annotated[
         UploadFile,
         File(
-            description="CSV with the columns name, sku, description, "
-            "category, price, stock and weight_kg"
+            description="CSV with the columns name, sku, description, category, price, "
+            "stock and weight_kg, plus the optional image_url, image_author, image_license, "
+            "image_license_url and image_source_url"
         ),
     ],
     dry_run: Annotated[bool, Query(description="Validate and report without saving")] = False,

@@ -2,8 +2,10 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal
 
+from ecommerce.application.catalog.images import ImageCreditInput, ImageSource
 from ecommerce.application.imports.table import RawProductRow
 from ecommerce.domain.catalog.category import Category
+from ecommerce.domain.catalog.image import ImageCredit, parse_web_url
 from ecommerce.domain.catalog.product import (
     ProductDetails,
     check_price,
@@ -13,9 +15,16 @@ from ecommerce.domain.catalog.product import (
     clean_name,
 )
 from ecommerce.domain.catalog.sku import Sku
-from ecommerce.domain.errors import FieldErrors, InvalidValue
+from ecommerce.domain.errors import DomainValidationError, FieldErrors, InvalidValue
 
 REQUIRED_COLUMNS = ("name", "sku", "description", "category", "price", "stock", "weight_kg")
+IMAGE_COLUMNS = (
+    "image_url",
+    "image_author",
+    "image_license",
+    "image_license_url",
+    "image_source_url",
+)
 _INTEGER = re.compile(r"^[+-]?\d+$")
 _DECIMAL = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$")
 _ECHO_LIMIT = 40
@@ -27,6 +36,10 @@ class ProductDraft:
     sku: Sku
     details: ProductDetails
     notes: tuple[str, ...] = ()
+    image: ImageSource | None = None
+
+    def same_content(self, other: "ProductDraft") -> bool:
+        return self.details == other.details and self.image == other.image
 
 
 def parse_product_row(row: RawProductRow) -> ProductDraft:
@@ -50,6 +63,7 @@ def parse_product_row(row: RawProductRow) -> ProductDraft:
         stock = check_stock(parse_integer(row.get("stock")))
     with errors.collect("weight_kg"):
         weight_kg = check_weight(parse_decimal(row.get("weight_kg")))
+    image = _parse_image(row, errors)
     errors.raise_if_any()
     details = ProductDetails(
         name=name,
@@ -59,7 +73,45 @@ def parse_product_row(row: RawProductRow) -> ProductDraft:
         stock=stock,
         weight_kg=weight_kg,
     )
-    return ProductDraft(line=row.line, sku=sku, details=details, notes=tuple(notes))
+    return ProductDraft(
+        line=row.line,
+        sku=sku,
+        details=details,
+        notes=tuple(notes),
+        image=ImageSource(sku.value, image[0], image[1]) if image else None,
+    )
+
+
+def _parse_image(
+    row: RawProductRow, errors: FieldErrors
+) -> tuple[str, ImageCreditInput | None] | None:
+    url = row.get("image_url").strip()
+    credit = ImageCreditInput(
+        author=row.get("image_author").strip(),
+        license=row.get("image_license").strip(),
+        source_url=row.get("image_source_url").strip(),
+        license_url=row.get("image_license_url").strip() or None,
+    )
+    has_credit = any((credit.author, credit.license, credit.source_url, credit.license_url))
+    if not url:
+        if has_credit:
+            errors.add("image_url", "is required when a photo credit is given")
+        return None
+    with errors.collect("image_url"):
+        parse_web_url(url)
+    if not has_credit:
+        return url, None
+    try:
+        ImageCredit.build(
+            author=credit.author,
+            license=credit.license,
+            source_url=credit.source_url,
+            license_url=credit.license_url,
+        )
+    except DomainValidationError as exc:
+        for error in exc.errors:
+            errors.add(f"image_{error.field}", error.message)
+    return url, credit
 
 
 def parse_decimal(raw: str) -> Decimal:

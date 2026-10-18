@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
+
+from ecommerce.application.catalog.images import ImageImportOutcome
 
 
 class RowOutcome(StrEnum):
@@ -18,6 +20,7 @@ class RowResult:
     sku: str | None
     outcome: RowOutcome
     messages: tuple[str, ...] = ()
+    image: ImageImportOutcome | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +39,13 @@ class ImportReport:
     def summary(self) -> dict[RowOutcome, int]:
         return {outcome: self.count(outcome) for outcome in RowOutcome}
 
+    @property
+    def image_summary(self) -> dict[ImageImportOutcome, int]:
+        return {
+            outcome: sum(1 for row in self.rows if row.image is outcome)
+            for outcome in ImageImportOutcome
+        }
+
 
 @dataclass(slots=True)
 class ImportReportBuilder:
@@ -44,6 +54,11 @@ class ImportReportBuilder:
 
     def record(self, line: int, sku: str | None, outcome: RowOutcome, *messages: str) -> None:
         self._results[line] = RowResult(line, sku, outcome, messages)
+
+    def record_image(self, line: int, outcome: ImageImportOutcome, message: str = "") -> None:
+        row = self._results[line]
+        messages = (*row.messages, f"image: {message}") if message else row.messages
+        self._results[line] = replace(row, image=outcome, messages=messages)
 
     def build(self) -> ImportReport:
         return ImportReport(
