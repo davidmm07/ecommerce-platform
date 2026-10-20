@@ -84,7 +84,8 @@ docker compose up --build -d
 docker compose --profile seed run --rm seed
 ```
 
-`make down` stops the stack and keeps the data, `make clean` also deletes the database volume.
+`make down` stops the stack and keeps the data. `make clean` also deletes the database and the
+photos, both the Docker volumes and the local `backend/var/media`.
 
 ## Local development
 
@@ -118,7 +119,8 @@ make dev-seed
 
 Local development uses the same database volume as the Docker stack, but stores images in
 `backend/var/media` instead of the `media` volume. Photos imported by one are not visible to the
-other, and re-importing reports them as unchanged, so run `make clean` before switching.
+other, and re-importing reports them as unchanged, so run `make clean` before switching. It resets
+both, so no orphaned photos are left behind.
 
 Quality checks, the same ones CI runs:
 
