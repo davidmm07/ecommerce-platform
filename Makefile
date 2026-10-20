@@ -28,7 +28,7 @@ help:
 	@printf '  \033[36m%-10s\033[0m %s\n' 'typecheck' 'Static type checks and architecture contracts'
 	@printf '  \033[36m%-10s\033[0m %s\n' 'test' 'Run all test suites, the backend ones start PostgreSQL with Testcontainers'
 	@printf '  \033[36m%-10s\033[0m %s\n' 'check' 'Everything CI runs'
-	@printf '  \033[36m%-10s\033[0m %s\n' 'clean' 'Stop the stack and delete the database volume'
+	@printf '  \033[36m%-10s\033[0m %s\n' 'clean' 'Stop the stack and delete the database and every stored photo'
 
 env: .env
 
@@ -86,3 +86,4 @@ check: lint typecheck test
 
 clean:
 	docker compose down -v
+	rm -rf backend/var/media
