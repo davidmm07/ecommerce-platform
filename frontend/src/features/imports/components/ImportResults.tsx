@@ -1,6 +1,8 @@
+import { UploadCloud } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { cn } from '@/shared/lib/cn';
+import { Button } from '@/shared/ui/Button';
 import { Badge, Card, StatTile } from '@/shared/ui/display';
 
 import type { ImageOutcome, ImportReport, RowOutcome } from '../api';
@@ -29,7 +31,15 @@ const FILTERS: Array<{ value: RowOutcome | 'issues' | 'all'; label: string }> = 
   { value: 'failed', label: 'Failed' },
 ];
 
-export function ImportResults({ report }: { report: ImportReport }) {
+export function ImportResults({
+  report,
+  onImport,
+  importing = false,
+}: {
+  report: ImportReport;
+  onImport?: () => void;
+  importing?: boolean;
+}) {
   const [filter, setFilter] = useState<RowOutcome | 'issues' | 'all'>('issues');
   const rows = useMemo(
     () =>
@@ -48,10 +58,23 @@ export function ImportResults({ report }: { report: ImportReport }) {
   return (
     <section className="space-y-4" aria-label="Import results">
       {report.dry_run && (
-        <p className="rounded-lg bg-accent-soft px-4 py-3 text-sm text-accent-soft-fg ring-1 ring-accent/20">
-          Dry run: nothing was saved and no image was downloaded. Upload again without "Validate
-          only" to apply these changes.
-        </p>
+        <div className="flex flex-col gap-3 rounded-lg bg-accent-soft px-4 py-3 text-sm text-accent-soft-fg ring-1 ring-accent/20 sm:flex-row sm:items-center sm:justify-between">
+          <p>
+            <span className="font-semibold">Dry run complete.</span> Nothing was saved and no image
+            was downloaded.
+          </p>
+          {onImport && (
+            <Button
+              size="sm"
+              className="shrink-0"
+              loading={importing}
+              icon={<UploadCloud className="size-4" aria-hidden />}
+              onClick={onImport}
+            >
+              Import this file
+            </Button>
+          )}
+        </div>
       )}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatTile label="Rows" value={summary.total_rows} />

@@ -1,12 +1,13 @@
 import { render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { ImportReport } from '../api';
 import { ImportResults } from './ImportResults';
 
-function report(rows: ImportReport['rows']): ImportReport {
+function report(rows: ImportReport['rows'], dryRun = false): ImportReport {
   return {
-    dry_run: false,
+    dry_run: dryRun,
     summary: {
       total_rows: rows.length,
       created: rows.length,
@@ -58,5 +59,19 @@ describe('ImportResults', () => {
     );
     expect(screen.queryByRole('columnheader', { name: 'Image' })).toBeNull();
     expect(screen.queryByText('Images attached')).toBeNull();
+  });
+
+  it('offers to import the validated file after a dry run', async () => {
+    const onImport = vi.fn();
+    const rows: ImportReport['rows'] = [
+      { line: 2, sku: 'DL-001', outcome: 'created', image: null, messages: [] },
+    ];
+    const { rerender } = render(<ImportResults report={report(rows, true)} onImport={onImport} />);
+    expect(screen.getByText('Dry run complete.')).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Import this file' }));
+    expect(onImport).toHaveBeenCalledOnce();
+
+    rerender(<ImportResults report={report(rows, false)} onImport={onImport} />);
+    expect(screen.queryByRole('button', { name: 'Import this file' })).toBeNull();
   });
 });

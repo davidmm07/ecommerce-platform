@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { FileSpreadsheet, UploadCloud } from 'lucide-react';
+import { ClipboardCheck, FileSpreadsheet, UploadCloud } from 'lucide-react';
 import { useId, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -9,7 +9,10 @@ import { cn } from '@/shared/lib/cn';
 import { Button } from '@/shared/ui/Button';
 import { Card, ErrorState, PageHeader } from '@/shared/ui/display';
 
+import type { ImportReport } from '../api';
 import { MAX_IMPORT_BYTES, importsApi } from '../api';
+import type { ImportMode } from '../components/ImportModePicker';
+import { ImportModePicker } from '../components/ImportModePicker';
 import { ImportResults } from '../components/ImportResults';
 
 const COLUMNS = ['name', 'sku', 'description', 'category', 'price', 'stock', 'weight_kg'];
@@ -25,29 +28,38 @@ export function ImportPage() {
   const inputId = useId();
   const queryClient = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
-  const [dryRun, setDryRun] = useState(true);
+  const [mode, setMode] = useState<ImportMode>('validate');
+  const [report, setReport] = useState<ImportReport | null>(null);
   const [dragging, setDragging] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
   const upload = useMutation({
     mutationFn: ({ selected, validateOnly }: { selected: File; validateOnly: boolean }) =>
       importsApi.upload(selected, validateOnly),
-    onSuccess: (report) => {
-      if (!report.dry_run) {
+    onSuccess: (result) => {
+      setReport(result);
+      if (!result.dry_run) {
         void queryClient.invalidateQueries({ queryKey: productKeys.all });
       }
-      const { created, updated, failed, images } = report.summary;
+      const { created, updated, failed, images } = result.summary;
       const imageNote = images.attached + images.failed > 0 ? `, ${images.attached} images` : '';
       toast.success(
-        report.dry_run
-          ? `Validated ${report.summary.total_rows} rows`
+        result.dry_run
+          ? `Validated ${result.summary.total_rows} rows`
           : `Imported: ${created} created, ${updated} updated, ${failed} failed${imageNote}`,
       );
     },
   });
 
+  const run = (validateOnly: boolean) => {
+    if (file) {
+      upload.mutate({ selected: file, validateOnly });
+    }
+  };
+
   const choose = (selected: File | undefined) => {
     setLocalError(null);
+    setReport(null);
     upload.reset();
     if (!selected) {
       return;
@@ -116,23 +128,26 @@ export function ImportPage() {
               }}
             />
           </label>
+          <ImportModePicker value={mode} onChange={setMode} disabled={upload.isPending} />
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <label className="inline-flex items-center gap-2 text-sm text-fg-secondary">
-              <input
-                type="checkbox"
-                checked={dryRun}
-                onChange={(event) => setDryRun(event.target.checked)}
-                className="size-4 rounded border-line-strong text-accent-fg focus:ring-accent"
-              />
-              Validate only (dry run, nothing is saved)
-            </label>
+            <p className="text-sm text-fg-muted">
+              {file ? `Ready: ${file.name}` : 'Choose a CSV file to continue.'}
+            </p>
             <Button
+              size="lg"
+              className="w-full sm:w-auto"
               disabled={!file}
               loading={upload.isPending}
-              icon={<UploadCloud className="size-4" aria-hidden />}
-              onClick={() => file && upload.mutate({ selected: file, validateOnly: dryRun })}
+              icon={
+                mode === 'validate' ? (
+                  <ClipboardCheck className="size-5" aria-hidden />
+                ) : (
+                  <UploadCloud className="size-5" aria-hidden />
+                )
+              }
+              onClick={() => run(mode === 'validate')}
             >
-              {dryRun ? 'Validate file' : 'Import products'}
+              {mode === 'validate' ? 'Validate file' : 'Import products'}
             </Button>
           </div>
           {upload.isPending && upload.variables.validateOnly === false && (
@@ -168,9 +183,20 @@ export function ImportPage() {
           </ul>
         </Card>
       </div>
-      {upload.data && (
+      {report && (
         <div className="mt-8">
-          <ImportResults report={upload.data} />
+          <ImportResults
+            report={report}
+            importing={upload.isPending}
+            onImport={
+              file && report.dry_run
+                ? () => {
+                    setMode('import');
+                    run(false);
+                  }
+                : undefined
+            }
+          />
         </div>
       )}
     </>
