@@ -88,8 +88,9 @@ docker compose --profile seed run --rm seed
 
 ## Local development
 
-Requirements: Python 3.13 with [uv](https://docs.astral.sh/uv/), Node.js 22.12 or newer, Docker
-(for PostgreSQL and for the integration tests).
+Requirements: Python 3.13 with [uv](https://docs.astral.sh/uv/) (uv downloads it if needed),
+Node.js 22.12 or newer (`nvm use` reads the version from `.nvmrc`), Docker (for PostgreSQL and for
+the integration tests).
 
 ```bash
 make install
@@ -109,7 +110,15 @@ make dev-web
 
 Run `make dev-api` and `make dev-web` in two terminals. `dev-api` applies the migrations and starts
 Uvicorn with reload on port 8000. `dev-web` starts Vite on http://localhost:5173 and proxies `/api`
-to the backend, so no CORS setup is needed.
+and `/media` to the backend, so no CORS setup is needed. Then load the sample data:
+
+```bash
+make dev-seed
+```
+
+Local development uses the same database volume as the Docker stack, but stores images in
+`backend/var/media` instead of the `media` volume. Photos imported by one are not visible to the
+other, and re-importing reports them as unchanged, so run `make clean` before switching.
 
 Quality checks, the same ones CI runs:
 
