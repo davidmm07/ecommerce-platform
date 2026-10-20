@@ -120,7 +120,9 @@ make dev-seed
 Local development uses the same database volume as the Docker stack, but stores images in
 `backend/var/media` instead of the `media` volume. Photos imported by one are not visible to the
 other, and re-importing reports them as unchanged, so run `make clean` before switching. It resets
-both, so no orphaned photos are left behind.
+both, so no orphaned photos are left behind. Both also listen on port 8000 for the API, so stop
+`make dev-api` (Ctrl+C) before `make up`, or Docker fails with `address already in use`. To run
+both at once, set another `API_PORT` in `.env`.
 
 Quality checks, the same ones CI runs:
 
