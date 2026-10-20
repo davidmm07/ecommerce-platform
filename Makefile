@@ -9,7 +9,7 @@ POSTGRES_DB ?= ecommerce
 POSTGRES_PORT ?= 5432
 LOCAL_DATABASE_URL = postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@127.0.0.1:$(POSTGRES_PORT)/$(POSTGRES_DB)
 
-.PHONY: help env up seed down logs ps install dev-db dev-api dev-web lint typecheck test check clean
+.PHONY: help env up seed down logs ps install dev-db dev-api dev-seed dev-web lint typecheck test check clean
 
 help:
 	@printf '  \033[36m%-10s\033[0m %s\n' 'help' 'Show the available commands'
@@ -22,6 +22,7 @@ help:
 	@printf '  \033[36m%-10s\033[0m %s\n' 'install' 'Install backend and frontend dependencies for local development'
 	@printf '  \033[36m%-10s\033[0m %s\n' 'dev-db' 'Start only PostgreSQL for local development'
 	@printf '  \033[36m%-10s\033[0m %s\n' 'dev-api' 'Run migrations and the API with auto reload on port 8000'
+	@printf '  \033[36m%-10s\033[0m %s\n' 'dev-seed' 'Import the sample products and photos into the local database'
 	@printf '  \033[36m%-10s\033[0m %s\n' 'dev-web' 'Run the Vite dev server on port 5173 with the API proxy'
 	@printf '  \033[36m%-10s\033[0m %s\n' 'lint' 'Lint and check formatting of both apps'
 	@printf '  \033[36m%-10s\033[0m %s\n' 'typecheck' 'Static type checks and architecture contracts'
@@ -60,8 +61,11 @@ dev-db: .env
 	docker compose up -d db
 
 dev-api: .env
-	cd backend && APP_DATABASE_URL="$(LOCAL_DATABASE_URL)" APP_LOG_FORMAT=text uv run alembic upgrade head
-	cd backend && APP_DATABASE_URL="$(LOCAL_DATABASE_URL)" APP_LOG_FORMAT=text APP_MEDIA_SERVE=true uv run uvicorn ecommerce.presentation.api.app:create_app --factory --reload
+	@cd backend && APP_DATABASE_URL="$(LOCAL_DATABASE_URL)" APP_LOG_FORMAT=text uv run alembic upgrade head
+	@cd backend && APP_DATABASE_URL="$(LOCAL_DATABASE_URL)" APP_LOG_FORMAT=text APP_MEDIA_SERVE=true uv run uvicorn ecommerce.presentation.api.app:create_app --factory --reload
+
+dev-seed: .env
+	@cd backend && APP_DATABASE_URL="$(LOCAL_DATABASE_URL)" APP_LOG_FORMAT=text uv run ecommerce import-products ../data/products-sample-images.csv
 
 dev-web:
 	cd frontend && npm run dev
