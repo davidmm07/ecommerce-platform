@@ -1,5 +1,7 @@
 # E-commerce Platform
 
+[![CI](https://github.com/davidmm07/ecommerce-platform/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/davidmm07/ecommerce-platform/actions/workflows/ci.yml)
+
 A full stack e-commerce application built as if it were a real corporate project: a **FastAPI**
 backend designed with **Clean Architecture**, a **PostgreSQL** database, and a **React +
 TypeScript + TanStack** frontend, packaged as a **Docker Compose** monorepo.
