@@ -4,10 +4,6 @@ A full stack e-commerce application built as if it were a real corporate project
 backend designed with **Clean Architecture**, a **PostgreSQL** database, and a **React +
 TypeScript + TanStack** frontend, packaged as a **Docker Compose** monorepo.
 
-It covers product CRUD with optimized product images, CSV import, full-text product search, and a
-purchase flow with a simulated payment provider, in a UI with light and dark themes. Stock reservation is concurrency safe, payments are idempotent, and a failed
-payment releases the stock it reserved.
-
 ---
 
 ## Contents
@@ -20,22 +16,21 @@ payment releases the stock it reserved.
 6. [Architecture: Clean vs Layered](#architecture-clean-vs-layered)
 7. [Database: PostgreSQL vs MongoDB](#database-postgresql-vs-mongodb)
 8. [Database design](#database-design)
-9. [Design patterns](#design-patterns)
-10. [SOLID in practice](#solid-in-practice)
-11. [API design](#api-design)
-12. [Data validation](#data-validation)
-13. [Error handling](#error-handling)
-14. [Purchase flow](#purchase-flow)
-15. [Product search](#product-search)
-16. [CSV import rules](#csv-import-rules)
-17. [Product images](#product-images)
-18. [Frontend](#frontend)
-19. [Dark and light mode](#dark-and-light-mode)
-20. [Testing and quality gates](#testing-and-quality-gates)
-21. [Security notes](#security-notes)
-22. [Configuration](#configuration)
-23. [Alternatives considered](#alternatives-considered)
-24. [Known limitations and next steps](#known-limitations-and-next-steps)
+9. [Design patterns and SOLID](#design-patterns-and-solid)
+10. [API design](#api-design)
+11. [Data validation](#data-validation)
+12. [Error handling](#error-handling)
+13. [Purchase flow](#purchase-flow)
+14. [Product search](#product-search)
+15. [CSV import rules](#csv-import-rules)
+16. [Product images](#product-images)
+17. [Frontend](#frontend)
+18. [Dark and light mode](#dark-and-light-mode)
+19. [Testing and quality gates](#testing-and-quality-gates)
+20. [Security notes](#security-notes)
+21. [Configuration](#configuration)
+22. [Alternatives considered](#alternatives-considered)
+23. [Known limitations and next steps](#known-limitations-and-next-steps)
 
 ## Highlights
 
@@ -160,42 +155,19 @@ rows, so the import is idempotent.
 
 ### Why the SQL-001 row is rejected
 
-The row could never harm the database. Every query is parameterized, so PostgreSQL receives the
-name as a value and never as SQL, and storing it verbatim would be perfectly safe. That is the
-defense that matters, and it does not depend on what the data looks like.
-
-It is still rejected because it is bad catalog data: no real product is called
-`Robert'); DROP TABLE products;--`, and the string could become dangerous later in a system that
-is less careful, such as a reporting script that concatenates SQL or a CSV export opened in a
-spreadsheet. So the domain applies a **data quality rule** to product names and descriptions
-(`reject_sql_payload` in `domain/text.py`) next to the plain text rule that rejects markup.
-
-The rule looks for statement shapes rather than single words, to keep false positives low:
-
-| Rejected | Accepted |
-|----------|----------|
-| `'); DROP TABLE products;--`, `TRUNCATE TABLE x`, `DELETE FROM`, `INSERT INTO` | `Drop Earrings`, `Table Lamp`, `Delete Key Caps` |
-| `' OR '1'='1`, `UNION SELECT`, `UPDATE users SET role = 'admin'` | `Robert's Running Shoes`, `Select from 6 colors`, `Update your set of tools` |
-| `;--`, `/* ... */`, `pg_sleep`, `xp_cmdshell`, `EXEC(` | `Rock & Roll; Vol. 2`, `50% off -- today only` |
-
-The same patterns run in the product form (Zod), so the admin sees the message before submitting.
-This is a deny list and is meant as data hygiene, not as the security boundary: parameterized
-queries, the database role and constraints remain what keeps SQL injection out.
+Parameterized queries already make this name harmless to the database, and they remain the real
+defense. The row is still rejected because an attack payload is bad catalog data that could hurt a
+less careful consumer later, so a domain rule (`reject_sql_payload` in `domain/text.py`, mirrored in
+the product form) rejects SQL statement shapes such as `'); DROP TABLE` or `' OR '1'='1`, while
+names like "Drop Earrings" or "Robert's Running Shoes" stay valid.
 
 ## Approach
 
-1. **Model the business first.** Money, SKU, category, product, order and payment card are domain
-   objects that validate themselves. The CSV quirks above turned into explicit, tested rules
-   instead of ad hoc parsing code.
-2. **Use cases as the API of the backend.** Every feature is an application use case such as
-   `CreateProduct`, `ImportProducts`, `QuoteCart` or `PlaceOrder`. FastAPI and the CLI are thin
-   adapters around them.
-3. **Let the database do what it is good at.** Constraints back up the domain rules, and full-text
-   and trigram indexes power search.
-4. **Treat failure as a feature.** Every error has a stable code and HTTP status. Payments can be
-   declined, time out or be retried, and the system stays consistent in each case.
-5. **Make it operable.** The stack ships with migrations as a separate job, health probes, JSON logs
-   with request ids, non-root containers, and a CI pipeline that also boots the Compose stack.
+Model the business first, with self-validating domain objects and the CSV quirks as explicit, tested
+rules. Expose every feature as a use case (`CreateProduct`, `ImportProducts`, `PlaceOrder`) that
+FastAPI and the CLI only adapt. Let PostgreSQL enforce constraints and power search. Treat failures
+as designed outcomes with stable error codes. Ship it operable: migrations as a job, health probes,
+JSON logs with request ids, non-root containers and a CI pipeline that boots the stack.
 
 ## Architecture: Clean vs Layered
 
@@ -300,11 +272,6 @@ The dependency rule is **enforced in CI** with `import-linter` contracts in
 `-- .github/workflows/ci.yml   lint, types, tests, build, and a Compose smoke test
 ```
 
-A **monorepo** keeps the API contract, the UI that consumes it and the deployment definition in one
-change set: a pull request that changes an endpoint also changes the frontend and is verified by
-one CI run. Each app keeps its own toolchain (uv for Python, npm for Node) and Dockerfile, so they
-can be extracted into separate repositories later if teams split.
-
 ## Database: PostgreSQL vs MongoDB
 
 **Decision: PostgreSQL 17.**
@@ -393,17 +360,13 @@ erDiagram
 Types are PostgreSQL types, and `numeric` precision and scale are in the notes. Every column is
 `NOT NULL` unless marked nullable.
 
-| Table | Role | Lifecycle |
-|-------|------|-----------|
-| `products` | The catalog, one row per product (an aggregate root) | Archived with `archived_at`, never deleted, so past orders keep their references |
-| `orders` | One checkout (an aggregate root). Customer, shipping address, totals and payment outcome are value objects stored as columns, because they are 1:1 with the order and never queried on their own | Created as `pending_payment`, then `paid` or `payment_failed` |
-| `order_lines` | The items of an order, part of the order aggregate. The composite key `(order_id, position)` keeps the cart order | Deleted with their order (`CASCADE`). A product that appears in an order cannot be deleted (`RESTRICT`) |
-
 Design decisions:
 
 - **Keys.** UUIDs are generated by the application, so an entity has its identity before it is
   saved, ids cannot be guessed or enumerated, and bulk imports need no round trip per row. The
   short, unique order `number` that customers see is derived from the id.
+- **Value objects as columns.** Customer, shipping address, totals and payment outcome are 1:1
+  with the order and never queried on their own, so they are columns of `orders`, not tables.
 - **Money and weights** are `NUMERIC`, never floats, with an explicit `currency` column. The
   `total_consistent` check makes the database itself reject an order whose total does not add up.
 - **Snapshots for history.** Order lines copy SKU, name, unit price and weight at purchase time.
@@ -423,69 +386,31 @@ Design decisions:
   weighted B) with a GIN index. A `pg_trgm` GIN index on `name` powers fuzzy matching for typos.
 - **The optional image is a JSONB document**, not a table: it is metadata about files in object
   storage, there is at most one per product, and it is always read with the product.
-
-  ```json
-  {
-    "key": "products/b4afc698-ec57-4925-9c9c-b4c57535bd14/7e2d46b95400fda9054e",
-    "width": 1280,
-    "height": 960,
-    "widths": [160, 320, 640, 960, 1280],
-    "formats": ["avif", "webp"],
-    "placeholder": "data:image/webp;base64,UklGR...",
-    "origin_url": "https://live.staticflickr.com/65535/51331948430_dc950d7a31_b.jpg",
-    "credit": {
-      "author": "Dennis S. Hurd",
-      "license": "CC BY 2.0",
-      "source_url": "https://www.flickr.com/photos/43296902@N00/51331948430",
-      "license_url": "https://creativecommons.org/licenses/by/2.0/"
-    }
-  }
-  ```
-
 - **No customers table yet.** Checkout is a guest flow, so the customer belongs to the order. With
   authentication, a `customers` table and an `orders.customer_id` foreign key would be added, and
   the address columns would stay as a snapshot of where that order was shipped.
 
-| Index | Kind | Serves |
-|-------|------|--------|
-| `pk_products`, `pk_orders`, `pk_order_lines` | B-tree, unique | Primary keys |
-| `uq_products_sku_active` | B-tree, unique, partial | SKU lookups (imports, cart) and uniqueness among active products |
-| `ix_products_search_vector` | GIN | Full-text search |
-| `ix_products_name_trgm` | GIN, `gin_trgm_ops` | Fuzzy name matching |
-| `ix_products_category`, `ix_products_price`, `ix_products_created_at` | B-tree | Catalog filters and sorting |
-| `uq_orders_number`, `uq_orders_idempotency_key` | B-tree, unique | Order lookup and idempotent replays |
-| `ix_orders_customer_email`, `ix_orders_created_at` | B-tree | Order history by email, newest first |
-| `ix_order_lines_product_id` | B-tree | The `RESTRICT` foreign key check and sales per product |
-
-## Design patterns
+## Design patterns and SOLID
 
 | Pattern | Where | Why |
 |---------|-------|-----|
 | Repository | `ProductRepository`, `OrderRepository` ports, SQLAlchemy adapters and in-memory test fakes | Use cases talk about aggregates, not SQL |
 | Unit of Work | `UnitOfWork` port, `SqlAlchemyUnitOfWork` | One transaction per business operation, explicit commit, automatic rollback |
-| Template Method | `UnitOfWork.__aenter__`/`__aexit__` call `_begin`, `rollback`, `_end` hooks | The transaction lifecycle is written once, adapters fill in the steps |
 | Data Mapper | `ProductMapper`, `OrderMapper` | Domain entities stay free of ORM state, the ORM records stay free of rules |
 | Strategy | `ShippingPolicy` (`WeightBasedShipping`), `PaymentGateway`, `ProductTableReader`, `ObjectStorage` (local disk or S3) | Pricing, payment provider, file format and storage vary independently of the use cases |
 | Decorator | `FreeShippingOverThreshold` wraps any `ShippingPolicy`, `ResilientPaymentGateway` wraps any gateway | Adds free shipping, timeouts and retries without changing the wrapped code |
 | Adapter | `SimulatedPaymentGateway`, `CsvProductTableReader`, `PillowImageProcessor`, `S3ObjectStorage` | Translate external libraries, formats and protocols into the application ports |
-| Command and Handler | `CreateProductCommand` -> `CreateProduct`, `PlaceOrderCommand` -> `PlaceOrder` | Each use case has one input type and one entry point |
-| Factory Method | `Product.create`, `Order.place`, `ProductDetails.build`, `create_app` | Construction enforces invariants, there is no way to build an invalid entity |
 | Value Object | `Money`, `Sku`, `Customer`, `ShippingAddress`, `PaymentCard` | Validation and equality by value, no primitive obsession |
-| Query Object / Specification | `ProductSearchCriteria` | Search inputs are validated once and translated by the read model |
-| Notification | `FieldErrors` collector, `ImportReport` | Report every problem at once instead of failing on the first |
 | CQRS (light) | `CatalogReadModel`, `OrderReadModel` for lists, repositories for writes | Read queries are optimized separately from aggregate persistence |
 | Composition Root / Dependency Injection | `Container` | All wiring lives in one place, tests swap adapters there |
-| Compensating action | `PlaceOrder` releases stock when the payment fails | Keeps stock correct without holding locks during the payment call |
-
-## SOLID in practice
 
 | Principle | Example |
 |-----------|---------|
-| Single Responsibility | `ImportProducts` orchestrates, `parse_product_row` converts text, `CsvProductTableReader` reads bytes, `ImportReportBuilder` collects outcomes |
-| Open/Closed | A new shipping rule or payment provider is a new class plugged into the `Container`. A new error type gets its HTTP status by adding one entry to `PROBLEM_TYPES` |
-| Liskov Substitution | In-memory fakes and SQLAlchemy repositories, and the simulated or resilient gateways, are interchangeable behind their ports: use case tests run on the fakes, integration tests run the same use cases on PostgreSQL |
-| Interface Segregation | Separate ports for writes (`ProductRepository`) and reads (`CatalogReadModel`). `SearchProducts` depends only on the read model |
-| Dependency Inversion | Use cases receive ports through their constructors. Only the composition root knows SQLAlchemy, uvicorn and the simulated gateway |
+| Single Responsibility | `ImportProducts` orchestrates, `parse_product_row` converts text, `CsvProductTableReader` reads bytes |
+| Open/Closed | New shipping rules, gateways or error types plug in without editing the use cases |
+| Liskov Substitution | In-memory fakes and SQLAlchemy repositories are interchangeable behind the same ports |
+| Interface Segregation | Separate write (`ProductRepository`) and read (`CatalogReadModel`) ports |
+| Dependency Inversion | Use cases depend on ports, only the `Container` knows the concrete adapters |
 
 ## API design
 
@@ -521,10 +446,6 @@ Conventions:
   different body is rejected with `422`, and a concurrent duplicate gets `409`.
 - **Pagination** is page based (`page`, `page_size` up to 100) and returns `total` and
   `total_pages`, which suits the admin tables.
-- **Resource oriented imports:** an import is a `POST` to `/product-imports` rather than an RPC
-  style `/products/import`.
-- **Operation ids** equal the Python function names (`place_order`, `search_products`), which keeps
-  generated clients readable.
 
 ## Data validation
 
@@ -695,28 +616,15 @@ flowchart LR
 
 ### Uploading
 
-1. **The browser does the cheap work.** It checks the type and size, shows a local preview, and
-   downscales very large photos (above 2560 px or 3 MB) to WebP before uploading, so a 12 MP phone
-   photo does not travel at full size. Progress comes from `XMLHttpRequest` upload events.
-2. **The server trusts nothing.** The body size is limited before parsing, and the format is
-   detected from the file bytes, not from the name or the declared type. Only JPEG, PNG, WebP and
-   AVIF are accepted, so SVG (a script vector) and GIF are rejected. Decompression bombs are
-   rejected from the header before decoding (40 MP limit), and so are truncated files and images
-   under 200 px.
-3. **Normalization.** The EXIF orientation is applied, ICC profiles are converted to sRGB, a fully
-   opaque alpha channel is dropped, and **all metadata is stripped**, so camera details and GPS
-   positions never reach customers.
-4. **Renditions.** Widths 160, 320, 640, 960 and 1280 px are generated (never upscaled), each as
-   AVIF and WebP. Encoding is CPU bound, so it runs in worker threads behind a concurrency limit and
-   the event loop keeps serving requests.
-5. **Content addressed keys.** Files are stored as `products/{id}/{sha256 prefix}-{width}.{format}`.
-   A new image means new URLs, so every file is served with `Cache-Control: public,
-   max-age=31536000, immutable` and caches never need purging. Uploading the same file twice is a
-   no-op for storage.
-6. **Consistency without distributed transactions.** The files are written first, then the product
-   row is updated under the same optimistic concurrency rules as any edit (`If-Match`). If the
-   update fails, the new files are deleted. After a successful replace or removal, the old files
-   are deleted on a best effort basis, with a warning logged if that fails.
+- The browser checks the type and size, shows a preview and downscales photos above 2560 px or
+  3 MB before uploading, with a progress bar.
+- The server detects the format from the bytes (JPEG, PNG, WebP or AVIF, never SVG), rejects
+  decompression bombs, truncated files and images under 200 px, applies the EXIF orientation,
+  converts to sRGB and strips all metadata.
+- Widths 160 to 1280 px are encoded as AVIF and WebP in worker threads, stored under content hashed
+  keys and served with `Cache-Control: immutable`, so caches never need purging.
+- Files are written before the product row is updated (with `If-Match`). A failed update deletes
+  the new files, and replaced files are cleaned up afterwards.
 
 ### Importing from a URL
 
@@ -742,38 +650,19 @@ Fetching a URL chosen by a user is a classic **SSRF** risk (making the server ca
 `APP_IMAGE_FETCH_ALLOW_HTTP` and `APP_IMAGE_FETCH_ALLOW_PRIVATE_NETWORKS` exist only for local
 development and tests (for example a MinIO bucket on `localhost`).
 
-Remote hosts fail in ordinary ways too, so transient failures are retried: `429`, `502`, `503`,
-`504` and network errors get up to 3 attempts in total. A `Retry-After` header is honoured, otherwise
-the wait doubles (1 s, 2 s). If a host asks for a longer wait than
-`APP_IMAGE_FETCH_MAX_RETRY_WAIT_SECONDS`, the download fails at once instead of blocking the import.
-Other errors (`404`, not an image, too large, blocked address) are never retried.
-
-Requests identify themselves with `APP_IMAGE_FETCH_USER_AGENT`. Some hosts require contact details
-in it: Wikimedia Commons, for example, answers `429` to generic agents. When importing from such a
-host, set it to something like `ShopName/1.0 (https://shop.example; ops@shop.example)`.
+Transient failures (`429`, `502` to `504` and network errors) get up to 3 attempts, honouring
+`Retry-After`. Some hosts, such as Wikimedia Commons, also require contact details in
+`APP_IMAGE_FETCH_USER_AGENT`.
 
 ### Loading and showing
 
-- The API returns `image: {url, width, height, placeholder, sources}`. `sources` holds an AVIF
-  and a WebP `srcset`, and URLs are built from `APP_MEDIA_BASE_URL`, which points at a CDN in
-  production.
-- The UI renders `<picture>` with both sources and a `sizes` value per context (grid card, detail
-  page, admin table, cart), so the browser picks the smallest file that is sharp for the layout and
-  the pixel density.
-- `width` and `height` attributes plus fixed aspect ratio boxes reserve space, so nothing shifts
-  while images load (no CLS).
-- Images below the fold use `loading="lazy"` and `decoding="async"`. The first row of results and
-  the product page image use `fetchpriority="high"` and eager loading, because they are the
-  Largest Contentful Paint candidates.
-- **Blur-up:** a 24 px WebP placeholder (about 200 bytes) is inlined in the API response as a data
-  URI, so it renders instantly and the real image fades in over it. If a file is missing, a
-  neutral fallback appears instead of a broken icon.
-- **Photo credits** are part of the image metadata (`author`, `license`, `source_url`,
-  `license_url`) and are shown under the photo on the product page and in the image manager, as CC
-  BY licenses require. Links only accept `http(s)` and use `rel="noopener noreferrer nofollow"`.
-- nginx serves `/media/` straight from the storage volume with the right MIME types, immutable
-  caching and no gzip, since images are already compressed. In production the same keys sit in S3,
-  R2 or MinIO behind a CDN.
+- The API returns `image: {url, width, height, placeholder, sources, credit}`, with AVIF and WebP
+  `srcset`s built from `APP_MEDIA_BASE_URL` (a CDN in production).
+- The UI renders a responsive `<picture>` with a `sizes` value per context, reserved dimensions (no
+  layout shift), lazy loading below the fold and high priority for the first visible images.
+- A 24 px blur placeholder is inlined as a data URI, and photo credits are shown under the photo
+  with safe `rel` links, as CC BY licenses require.
+- nginx serves `/media/` from the storage volume with immutable caching.
 
 ### Storage backends
 
@@ -826,27 +715,19 @@ the browser talks to one origin and the Content Security Policy can stay strict.
 
 ## Dark and light mode
 
-- **Three choices:** System (the default, which follows `prefers-color-scheme` live), Light and
-  Dark. The toggle sits in the header and the choice is remembered in `localStorage`.
-- **Semantic design tokens.** Colors are CSS variables with meaning (`canvas`, `surface`, `fg`,
-  `fg-muted`, `line`, `accent`, ...) registered as Tailwind v4 theme colors, so components use
-  `bg-surface` or `text-fg` and never hard-code a light-only color. The dark theme only redefines
-  the variables under `.dark`. Status colors (success, warning, danger) have dark variants.
-- **No flash of the wrong theme.** A tiny script, `/theme-init.js`, runs in `<head>` before the
-  first paint and sets the theme class. It is a static file rather than inline code, so the strict
-  Content Security Policy (no inline scripts) stays intact.
-- **Native details.** `color-scheme` is set, so scrollbars and form controls match the theme.
-  `theme-color` tints the mobile browser bar, toasts follow the theme, and transitions respect
-  `prefers-reduced-motion`.
+Light, dark and system themes (the default follows `prefers-color-scheme`), chosen in the header and
+remembered locally. Colors are semantic CSS variables registered as Tailwind theme tokens, and a
+small static script sets the theme before the first paint, so there is no flash and the CSP needs
+no inline scripts.
 
 ## Testing and quality gates
 
 | Suite | Count | What it covers |
 |-------|-------|----------------|
-| Backend unit | 225 | Domain rules (including the SQL payload rule), use cases with in-memory adapters, CSV parsing (including the full sample file), image processing (orientation, metadata, alpha, bombs, truncated and fake files), SSRF protections and retries of the URL fetcher (private addresses, redirects, limits, `Retry-After`) with a mock transport, local and S3 storage (moto), payment simulation, retries, logging |
-| Backend integration | 31 | Real PostgreSQL via Testcontainers: repositories, optimistic locking, constraints, migrations against the models, search, concurrent checkout, imports, image metadata and credits, CLI imports whose image columns point at a local HTTP server |
-| Backend API | 48 | HTTP behaviour end to end: status codes, headers, problem details, ETags, idempotency, CSV imports with images, image uploads, URL imports, media serving, limits |
-| Frontend | 47 | Utilities, cart store, card helpers, Zod schemas, HTTP client and upload progress, theme store, responsive image, photo credit and import results components, ProductForm behaviour |
+| Backend unit | 225 | Domain rules, use cases on in-memory adapters, CSV parsing, image processing, URL fetcher, storage, payments |
+| Backend integration | 31 | Real PostgreSQL via Testcontainers: repositories, locking, constraints, migrations, search, concurrent checkout, imports, CLI |
+| Backend API | 48 | HTTP end to end: status codes, headers, problem details, ETags, idempotency, imports, images, limits |
+| Frontend | 47 | Stores, helpers, Zod schemas, HTTP client, components and forms |
 
 Backend gates: Ruff (lint and format), `mypy --strict`, `import-linter` architecture contracts and a
 90% coverage threshold (currently 97%). Frontend gates: ESLint with type aware rules, Prettier,
@@ -884,17 +765,15 @@ Backend settings are environment variables with the `APP_` prefix
 | `APP_CORS_ORIGINS` | `http://localhost:5173` | Comma separated allowed origins |
 | `APP_LOG_LEVEL` / `APP_LOG_FORMAT` | `INFO` / `json` | Logging, `text` is handy locally |
 | `APP_DOCS_ENABLED` | `true` | Serve `/docs` and `/openapi.json` |
-| `APP_SHIPPING_BASE_FEE` / `APP_SHIPPING_PER_KG_FEE` / `APP_FREE_SHIPPING_THRESHOLD` | `4.99` / `1.25` / `100.00` | Shipping policy |
-| `APP_PAYMENT_LATENCY_MS` / `APP_PAYMENT_TIMEOUT_SECONDS` / `APP_PAYMENT_MAX_ATTEMPTS` | `400` / `5` / `3` | Simulated provider and resilience |
-| `APP_IMPORT_MAX_BYTES` / `APP_IMPORT_MAX_ROWS` | `5242880` / `5000` | Import limits |
 | `APP_MEDIA_BACKEND` | `local` | `local` directory or `s3` compatible object storage |
 | `APP_MEDIA_ROOT` / `APP_MEDIA_BASE_URL` / `APP_MEDIA_SERVE` | `var/media` / `/media` / `false` | Local storage path, public URL prefix (a CDN in production), let the API serve files in development |
 | `APP_S3_BUCKET` / `APP_S3_ENDPOINT_URL` / `APP_S3_REGION` | none / none / `us-east-1` | S3, R2 or MinIO settings when the backend is `s3` |
-| `APP_IMAGE_MAX_BYTES` / `APP_IMAGE_MAX_PIXELS` / `APP_IMAGE_PROCESSING_CONCURRENCY` | `10485760` / `40000000` / `2` | Upload and download limits and parallel encoders |
-| `APP_IMAGE_FETCH_TIMEOUT_SECONDS` / `APP_IMAGE_FETCH_ALLOWED_HOSTS` | `15` / empty (any public host) | URL import timeout and a comma separated host allow list, subdomains included |
-| `APP_IMAGE_FETCH_ALLOW_HTTP` / `APP_IMAGE_FETCH_ALLOW_PRIVATE_NETWORKS` | `false` / `false` | Development only switches for plain http and local or private hosts |
-| `APP_IMAGE_FETCH_MAX_ATTEMPTS` / `APP_IMAGE_FETCH_MAX_RETRY_WAIT_SECONDS` | `3` / `10` | Retries for `429`, `5xx` gateway errors and network failures |
+| `APP_IMAGE_FETCH_ALLOWED_HOSTS` | empty (any public host) | Comma separated host allow list for URL imports, subdomains included |
 | `APP_IMAGE_FETCH_USER_AGENT` | `EcommercePlatform/1.0 (product image import)` | User agent for image downloads, add contact details for hosts that require them |
+
+Shipping fees, the payment simulation, import and image limits, and the image download timeout,
+retries and development switches are configurable too. Every setting and its default is in
+[`config.py`](backend/src/ecommerce/infrastructure/config.py).
 
 Compose reads `POSTGRES_PASSWORD` (required), `POSTGRES_USER`, `POSTGRES_DB`, `POSTGRES_PORT`,
 `API_PORT` and `WEB_PORT` from the root `.env` ([`.env.example`](.env.example)).
@@ -916,6 +795,7 @@ Compose reads `POSTGRES_PASSWORD` (required), `POSTGRES_USER`, `POSTGRES_DB`, `P
 | Frontend routing | TanStack Router, code based routes | File based routes: generated route tree. React Router: less type safety for search params |
 | Frontend types | Hand written TypeScript types | Generated from OpenAPI with `openapi-typescript`: worth it once the API grows |
 | Styling | Tailwind CSS with small own components | A component library (MUI, shadcn/ui): faster for large apps, more dependencies |
+| Repository layout | Monorepo, each app with its own toolchain and Dockerfile | Separate repositories: independent releases, but an API change needs coordinated pull requests and CI runs |
 | Packaging | Compose with separate API and web images | One image serving the SPA from FastAPI: fewer moving parts, but couples deployments |
 | Image upload path | Multipart upload through the API | Presigned direct-to-S3 uploads: no upload traffic on the API, best for large or very frequent files, but needs storage CORS and an asynchronous finalize step. The next step at scale |
 | Image processing | Renditions generated once at upload | On the fly image service (imgproxy, Thumbor, Cloudinary, Imgix) behind a CDN: any size on demand, but another service or vendor to run and pay for |
@@ -923,7 +803,6 @@ Compose reads `POSTGRES_PASSWORD` (required), `POSTGRES_USER`, `POSTGRES_DB`, `P
 | Sample photos | Image URL columns in a copy of the sample CSV, downloaded and processed on import | Commit the binaries: works offline, but 8.6 MB of history that never shrinks. Git LFS: smaller clones, but needs LFS on every machine and in CI. Hotlink the remote URLs in `<img>`: zero storage, but no AVIF or sizes, a looser CSP, third party tracking and broken images when the source changes. An image proxy (imgproxy) in front of remote URLs: on demand sizes, but another service and the same availability risk |
 | Image formats | AVIF with WebP fallback | Adding JPEG: every current browser supports WebP, so it would only add storage |
 | Image placeholder | Inline 24 px WebP data URI | BlurHash or ThumbHash: smaller strings, but they need JavaScript to decode. A dominant color: cheaper, less pleasant |
-| Theming | CSS variable tokens and a class on `<html>` | `dark:` variants on every element: verbose and easy to miss. Media query only: no user override. CSS-in-JS theme provider: runtime cost |
 
 ## Known limitations and next steps
 
