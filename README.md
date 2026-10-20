@@ -738,7 +738,7 @@ no inline scripts.
 | Backend unit | 225 | Domain rules, use cases on in-memory adapters, CSV parsing, image processing, URL fetcher, storage, payments |
 | Backend integration | 31 | Real PostgreSQL via Testcontainers: repositories, locking, constraints, migrations, search, concurrent checkout, imports, CLI |
 | Backend API | 48 | HTTP end to end: status codes, headers, problem details, ETags, idempotency, imports, images, limits |
-| Frontend | 47 | Stores, helpers, Zod schemas, HTTP client, components and forms |
+| Frontend | 50 | Stores, helpers, Zod schemas, HTTP client, components and forms |
 
 Backend gates: Ruff (lint and format), `mypy --strict`, `import-linter` architecture contracts and a
 90% coverage threshold (currently 97%). Frontend gates: ESLint with type aware rules, Prettier,
