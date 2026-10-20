@@ -46,11 +46,10 @@ payment releases the stock it reserved.
 | Product images | Optional per product. Uploaded or imported from a URL (SSRF safe), validated and normalized server side, AVIF and WebP in 5 widths, content hashed immutable URLs, blur-up placeholders, responsive `<picture>`, photo credits |
 | Search | PostgreSQL full-text search plus trigram fuzzy matching, filters, sorting and pagination |
 | Purchase | Cart, server side quote, weight based shipping, simulated card payments, idempotent checkout |
-| Consistency | Row locks prevent overselling, a failed payment releases its stock (compensation) |
 | API | Versioned REST, RFC 9457 Problem Details, OpenAPI docs, request ids, size limits |
 | Frontend | TanStack Router, Query, Table, Form and Store, Zod validation, Tailwind CSS |
 | Theming | Light, dark and system themes from semantic design tokens, no flash on load, CSP friendly |
-| Quality | 304 backend tests (97% coverage) incl. real PostgreSQL via Testcontainers, 47 frontend tests, `mypy --strict`, architecture contracts, CI |
+| Quality | Unit, integration (real PostgreSQL via Testcontainers) and API tests, frontend tests, `mypy --strict`, architecture contracts, CI |
 | Delivery | Monorepo, multi stage non-root images, Compose stack with migrations, health checks and a seed job |
 
 ## Quick start with Docker
@@ -66,11 +65,9 @@ make seed
 ```
 
 `make up` creates a git ignored `.env` with a random database password the first time, builds the
-images and starts PostgreSQL, the migration job, the API and the web app. `make seed` imports
-[`data/products-sample-images.csv`](data/products-sample-images.csv), the sample products plus a
-photo for each one downloaded from its image columns, through the same use case the Import page
-uses. The photos need internet access; without it the products are still imported and show a
-placeholder.
+images and starts PostgreSQL, the migration job, the API and the web app. `make seed` imports the
+sample products and downloads their photos, which needs internet access (see
+[Sample photos](#sample-photos)).
 
 | URL | What |
 |-----|------|
@@ -131,11 +128,9 @@ To reuse an existing database instead, export `TEST_DATABASE_URL`, for example
 
 ## The sample CSV
 
-The provided example file was **downloaded on October 17, 2026** (2026-10-17). It is stored
+The provided example file was **downloaded on October 17, 2026**. It is stored
 unchanged in [`data/products-sample.csv`](data/products-sample.csv).
-[`data/products-sample-images.csv`](data/products-sample-images.csv) is the same file, line for
-line, with five optional image columns appended (see [Sample photos](#sample-photos)). Both files
-give the results below, and the second one also attaches 83 photos.
+A copy with photo columns gives the same results (see [Sample photos](#sample-photos)).
 
 It has 97 data rows with deliberate data quality problems. This is how each one is handled.
 Line numbers include the header, so they match what a spreadsheet shows.
@@ -195,8 +190,8 @@ queries, the database role and constraints remain what keeps SQL injection out.
 2. **Use cases as the API of the backend.** Every feature is an application use case such as
    `CreateProduct`, `ImportProducts`, `QuoteCart` or `PlaceOrder`. FastAPI and the CLI are thin
    adapters around them.
-3. **Let the database do what it is good at.** Constraints back up the domain rules, row locks make
-   stock reservation safe, and full-text and trigram indexes power search.
+3. **Let the database do what it is good at.** Constraints back up the domain rules, and full-text
+   and trigram indexes power search.
 4. **Treat failure as a feature.** Every error has a stable code and HTTP status. Payments can be
    declined, time out or be retried, and the system stays consistent in each case.
 5. **Make it operable.** The stack ships with migrations as a separate job, health probes, JSON logs
@@ -223,8 +218,8 @@ Why it fits this project:
 - **There is real I/O variability.** A payment gateway, a file format and a database are exactly the
   details that ports isolate. The simulated gateway can be swapped for Stripe or Adyen without
   touching the checkout use case.
-- **Testability drove the design.** 133 of the backend tests run without a database in under a
-  second, while integration tests prove the adapters against a real PostgreSQL.
+- **Testability drove the design.** Domain and use case tests run without a database on
+  in-memory adapters, while integration tests prove the adapters against a real PostgreSQL.
 
 Layered architecture would be a reasonable choice for a CRUD-only service. The cost of Clean
 Architecture (more files, mapping between ORM records and entities) is paid back here because the
@@ -317,9 +312,9 @@ can be extracted into separate repositories later if teams split.
 | Criterion | PostgreSQL (chosen) | MongoDB |
 |-----------|---------------------|---------|
 | Shape of the data | Uniform product schema, orders with lines that reference products: relational | Flexible documents, best when product attributes vary a lot |
-| Checkout consistency | ACID transactions and `SELECT ... FOR UPDATE` across products and orders in one statement | Multi-document transactions need a replica set and are more limited |
+| Checkout consistency | ACID transactions across products and orders | Multi-document transactions need a replica set and are more limited |
 | Money | Exact `NUMERIC(12,2)` | `Decimal128`, workable but less common in drivers and tooling |
-| Integrity at rest | `CHECK` constraints (price > 0, stock >= 0, known category), unique and foreign keys | Schema validation is optional and weaker |
+| Integrity at rest | `CHECK` constraints, unique and foreign keys | Schema validation is optional and weaker |
 | Search | Built-in full-text search (`tsvector`, GIN) and `pg_trgm` fuzzy matching | Text indexes (no fuzzy matching) or Atlas Search, which is a managed service |
 | Operations | Alembic migrations, mature backups and tooling | Schemaless evolution, but migrations still exist in practice |
 
@@ -419,17 +414,11 @@ Design decisions:
   lines.
 - **Concurrency.** `version` is a SQLAlchemy `version_id_col`: each update runs
   `UPDATE ... WHERE id = :id AND version = :expected` and fails if another writer got there first.
-  The API exposes it as the `ETag`. Checkout also takes `SELECT ... FOR UPDATE` row locks on the
-  products whose stock it reserves.
-- **Idempotent checkout without an extra table.** `idempotency_key` is unique, and
-  `request_fingerprint` (SHA-256 of the canonical request) detects a key reused with a different
-  body. The order row itself is the stored result that replays return.
+  The API exposes it as the `ETag`.
 - **Integrity at rest.** Named `CHECK` constraints mirror the domain rules: `price_positive`,
   `stock_non_negative`, `weight_non_negative`, `category_known`, `image_is_object`,
   `status_known`, `total_consistent` and `quantity_positive`. All constraints and indexes follow one
   naming convention (`pk_`, `fk_`, `uq_`, `ck_`, `ix_`), so migrations stay predictable.
-- **Card data.** Only the brand, the last 4 digits and the provider reference are stored, never the
-  number or the CVC.
 - **Search.** `search_vector` is a stored generated column (name and SKU weighted A, description
   weighted B) with a GIN index. A `pg_trgm` GIN index on `name` powers fuzzy matching for typos.
 - **The optional image is a JSONB document**, not a table: it is metadata about files in object
@@ -486,7 +475,6 @@ Design decisions:
 | Notification | `FieldErrors` collector, `ImportReport` | Report every problem at once instead of failing on the first |
 | CQRS (light) | `CatalogReadModel`, `OrderReadModel` for lists, repositories for writes | Read queries are optimized separately from aggregate persistence |
 | Composition Root / Dependency Injection | `Container` | All wiring lives in one place, tests swap adapters there |
-| Idempotent Receiver | `Idempotency-Key` on `POST /orders` | Retries of the same checkout never charge twice |
 | Compensating action | `PlaceOrder` releases stock when the payment fails | Keeps stock correct without holding locks during the payment call |
 
 ## SOLID in practice
@@ -549,8 +537,8 @@ Validation happens in three layers, each with its own job:
    markup, control characters or SQL injection payloads, price greater than 0 and at most 1,000,000, stock and weight
    ranges, email and postal code formats, Luhn check for cards, state machine for orders. The
    `FieldErrors` collector reports **all** invalid fields of a request or CSV row at once.
-3. **Database:** `CHECK` constraints, a partial unique index on active SKUs, foreign keys and
-   `NUMERIC` precision. These protect the data even from bugs or manual SQL.
+3. **Database:** constraints, keys and `NUMERIC` precision protect the data even from bugs or
+   manual SQL (see [Database design](#database-design)).
 
 The frontend mirrors the important rules with Zod schemas for instant feedback, but the server stays
 the source of truth: its field errors are shown next to the matching inputs.
@@ -627,13 +615,10 @@ Design choices:
 - **Overselling is impossible.** Products are locked with `SELECT ... FOR UPDATE` in a consistent
   order, which prevents deadlocks. A `CHECK (stock >= 0)` constraint is the last line of defense.
   An integration test fires 10 concurrent checkouts at a product with 3 units: exactly 3 succeed.
-- **Prices are snapshotted.** Order lines copy SKU, name, unit price and weight, so later catalog
-  edits never change past orders. Archived products keep their history through soft delete.
 - **Shipping is a strategy:** USD 4.99 plus USD 1.25 per started kilogram, free above USD 100 and
   for weightless goods. The values are configurable. The cart shows a server side quote, so the UI
   never computes the authoritative total.
-- **Simulated provider:** cards are validated (Luhn, expiry, CVC). Only the brand, last 4 digits
-  and provider reference are stored, never the full number or CVC.
+- **Simulated provider:** cards are validated (Luhn, expiry, CVC).
 
 Test cards (any future expiry and any 3 digit CVC):
 
@@ -723,8 +708,7 @@ flowchart LR
    positions never reach customers.
 4. **Renditions.** Widths 160, 320, 640, 960 and 1280 px are generated (never upscaled), each as
    AVIF and WebP. Encoding is CPU bound, so it runs in worker threads behind a concurrency limit and
-   the event loop keeps serving requests. For one sample photo, a 218 KB JPEG becomes a 25 KB AVIF at
-   640 px.
+   the event loop keeps serving requests.
 5. **Content addressed keys.** Files are stored as `products/{id}/{sha256 prefix}-{width}.{format}`.
    A new image means new URLs, so every file is served with `Cache-Control: public,
    max-age=31536000, immutable` and caches never need purging. Uploading the same file twice is a
@@ -755,10 +739,6 @@ Fetching a URL chosen by a user is a classic **SSRF** risk (making the server ca
 - an optional host allow list (`APP_IMAGE_FETCH_ALLOWED_HOSTS`) for production, where only known
   CDNs or a DAM should be reachable.
 
-The checks happen before connecting, which leaves a small DNS rebinding window between the check
-and the connection. Pinning the resolved address in a custom transport, or sending the traffic
-through an egress proxy, closes it, and is listed as a next step.
-
 `APP_IMAGE_FETCH_ALLOW_HTTP` and `APP_IMAGE_FETCH_ALLOW_PRIVATE_NETWORKS` exist only for local
 development and tests (for example a MinIO bucket on `localhost`).
 
@@ -770,8 +750,7 @@ Other errors (`404`, not an image, too large, blocked address) are never retried
 
 Requests identify themselves with `APP_IMAGE_FETCH_USER_AGENT`. Some hosts require contact details
 in it: Wikimedia Commons, for example, answers `429` to generic agents. When importing from such a
-host, set it to something like `ShopName/1.0 (https://shop.example; ops@shop.example)`. This is
-also why the sample photos avoid Wikimedia: seeding works without any configuration.
+host, set it to something like `ShopName/1.0 (https://shop.example; ops@shop.example)`.
 
 ### Loading and showing
 
@@ -808,27 +787,20 @@ implement the same `ObjectStorage` port and are selected in the composition root
 
 The repository contains **no image binaries**.
 [`data/products-sample-images.csv`](data/products-sample-images.csv) is the provided sample file
-with five columns appended to every line. The original text of each line is untouched, so line
-numbers, quoting and every data quality problem stay exactly the same:
-
-```text
-name,sku,description,category,price,stock,weight_kg,image_url,image_author,image_license,image_license_url,image_source_url
-```
+with the five optional [image columns](#csv-import-rules) appended to every line. The original text
+of each line is untouched, so line numbers, quoting and every data quality problem stay exactly the
+same.
 
 The 83 photos were found through the Openverse catalog and are CC0, public domain, CC BY or CC
 BY-SA, hosted on Flickr, rawpixel, StockSnap and the WordPress photo directory. Rows that fail validation and
 blank rows have empty image columns. Superseded duplicates carry the same photo as the row that
 wins, so duplicate handling is unchanged.
 
-`make seed` runs `ecommerce import-products /data/products-sample-images.csv`: the products first,
-in one transaction, then the photos. Running it again reports 83 unchanged products and 83
-unchanged images, and downloads nothing. A failed download (offline, removed photo) is reported on
-its row and the product keeps its placeholder.
+`make seed` runs `ecommerce import-products /data/products-sample-images.csv`. Running it again
+reports 83 unchanged products and 83 unchanged images, and downloads nothing.
 
 One file keeps each product and its photo on the same line, needs one command and gives one
-report, and it is the same format an admin can upload on the Import page. Committing the photos
-instead made seeding work offline, but put about 8.6 MB of binaries in git history forever, and
-every replaced photo would add more.
+report, and it is the same format an admin can upload on the Import page.
 
 ## Frontend
 
@@ -847,8 +819,7 @@ API client, query options, components and pages. Shared code lives in `src/share
 
 UX details: debounced search-as-you-type, skeletons and empty states, a confirmation dialog for
 deletes, drag and drop image upload with preview and progress, toasts, inline server validation errors, test card shortcuts, a stale data warning on
-concurrent edits (412), and a responsive layout down to phone width. Checkout keeps the same
-idempotency key when a request fails on the network, so a retry can never charge twice.
+concurrent edits (412), and a responsive layout down to phone width.
 
 In Docker the app is served by an unprivileged nginx that also proxies `/api` to the backend, so
 the browser talks to one origin and the Content Security Policy can stay strict.
@@ -891,8 +862,7 @@ seeds it as a smoke test.
 - Parameterized SQL everywhere, escaped `LIKE` patterns and sanitized full-text queries.
 - Plain text policy for product data (no markup, no SQL injection payloads), plus React output
   escaping and a strict CSP on the web app.
-- Server side URL imports are protected against SSRF: https only, public addresses only, every
-  redirect re-checked, timeouts, size limits and an optional host allow list.
+- Server side URL imports are protected against SSRF, see [Importing from a URL](#importing-from-a-url).
 - Request body limit, upload type and size checks, CSV row limits.
 - Uploaded images are identified by their bytes, re-encoded from decoded pixels (so polyglot files
   and embedded payloads do not survive), limited in pixels against decompression bombs, and
@@ -933,15 +903,11 @@ Compose reads `POSTGRES_PASSWORD` (required), `POSTGRES_USER`, `POSTGRES_DB`, `P
 
 | Topic | Chosen | Alternatives and why not |
 |-------|--------|--------------------------|
-| Architecture | Clean Architecture | Layered: simpler, but couples rules to the ORM. Vertical slices: great for many small features, less clear for shared rules like stock |
-| Database | PostgreSQL | MongoDB: see the comparison above |
 | Data access | SQLAlchemy 2 async with explicit mappers | Imperative mapping onto domain classes: less code, but leaks ORM state into entities. SQLModel: mixes API and persistence models |
 | Migrations | Alembic, run as a one-off Compose job | Migrating on API start: races when several replicas start together |
 | Categories | Closed enum plus a `CHECK` constraint | Lookup table: better when the business edits categories, would need its own CRUD. Native PostgreSQL enum: painful to alter |
-| Product delete | Soft delete (archive) | Hard delete: breaks order history or needs nullable foreign keys |
 | Duplicate SKUs in a file | Last row wins, reported | First wins, or reject the whole file: both lose the "Updated" intent of the sample data |
 | Invalid CSV rows | Skip and report, valid rows in one transaction | All-or-nothing: one typo blocks 5,000 rows. Dry run covers the strict use case |
-| Large imports | Synchronous, with limits | Background job with a queue (Celery, arq) and an import status resource, the next step for big files |
 | Search | PostgreSQL FTS and trigrams | Elasticsearch or OpenSearch: better relevance tuning, but another system to run and keep in sync |
 | Pagination | Page and size | Cursor (keyset) pagination: scales better for infinite scroll, but tables need page numbers |
 | Concurrency | Pessimistic locks for stock, optimistic `ETag` for edits | Optimistic only: retries under heavy checkout contention. Atomic `UPDATE ... WHERE stock >= n`: fast, but harder with multi-line orders and reporting |
@@ -954,8 +920,7 @@ Compose reads `POSTGRES_PASSWORD` (required), `POSTGRES_USER`, `POSTGRES_DB`, `P
 | Image upload path | Multipart upload through the API | Presigned direct-to-S3 uploads: no upload traffic on the API, best for large or very frequent files, but needs storage CORS and an asynchronous finalize step. The next step at scale |
 | Image processing | Renditions generated once at upload | On the fly image service (imgproxy, Thumbor, Cloudinary, Imgix) behind a CDN: any size on demand, but another service or vendor to run and pay for |
 | Image storage | Object storage, metadata in a `JSONB` column | Images in PostgreSQL `BYTEA`: simple, but bloats the database and backups and cannot sit behind a CDN. A `product_images` table: needed for galleries, more than one optional image needs |
-| Sample photos | Image URL columns in a copy of the sample CSV, downloaded and processed on import | A separate image manifest: two files to keep in sync, two commands and two reports. Commit the binaries: works offline, but 8.6 MB of history that never shrinks. Git LFS: smaller clones, but needs LFS on every machine and in CI. Hotlink the remote URLs in `<img>`: zero storage, but no AVIF or sizes, a looser CSP, third party tracking and broken images when the source changes. An image proxy (imgproxy) in front of remote URLs: on demand sizes, but another service and the same availability risk |
-| Invalid product text | Reject markup and SQL payload shapes in the domain | Accept anything, since parameterized SQL is safe: correct for security, but stores junk. Escape or strip silently: changes data without telling the user. A WAF: protects the edge, not CSV imports or other writers |
+| Sample photos | Image URL columns in a copy of the sample CSV, downloaded and processed on import | Commit the binaries: works offline, but 8.6 MB of history that never shrinks. Git LFS: smaller clones, but needs LFS on every machine and in CI. Hotlink the remote URLs in `<img>`: zero storage, but no AVIF or sizes, a looser CSP, third party tracking and broken images when the source changes. An image proxy (imgproxy) in front of remote URLs: on demand sizes, but another service and the same availability risk |
 | Image formats | AVIF with WebP fallback | Adding JPEG: every current browser supports WebP, so it would only add storage |
 | Image placeholder | Inline 24 px WebP data URI | BlurHash or ThumbHash: smaller strings, but they need JavaScript to decode. A dominant color: cheaper, less pleasant |
 | Theming | CSS variable tokens and a class on `<html>` | `dark:` variants on every element: verbose and easy to miss. Media query only: no user override. CSS-in-JS theme provider: runtime cost |
@@ -975,11 +940,10 @@ Compose reads `POSTGRES_PASSWORD` (required), `POSTGRES_USER`, `POSTGRES_DB`, `P
   and JSON logs.
 - **Catalog features:** image galleries and editable alt text, discounts and promotions, multi
   currency and taxes.
-- **URL imports:** pin the resolved IP in the HTTP transport (or use an egress proxy) to close the
-  DNS rebinding window, and move large batches to a background queue.
+- **URL imports:** the SSRF checks run before connecting, which leaves a small DNS rebinding
+  window. Pinning the resolved IP in the HTTP transport, or an egress proxy, would close it.
 - **Orphaned media:** if the process dies between storing the files and updating the product, the
   files remain unreferenced. A periodic job comparing storage keys with the database would clean
   them up.
-- **End to end tests** with Playwright in CI. The flows, image delivery (AVIF selection, lazy
-  loading, zero layout shift) and both themes were verified with a headless browser during
-  development.
+- **End to end tests** with Playwright in CI, covering the main flows, image delivery and both
+  themes.
